@@ -1,0 +1,5 @@
+{
+  "_comment": "Template: proof-retry request body for POST /api/payment/verify",
+  "transaction_id": "0.0.12345@1234567890.123456789",
+  "quote_id": "<uuid-from-challenge-response>"
+}

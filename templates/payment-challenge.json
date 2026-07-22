@@ -1,0 +1,16 @@
+{
+  "_comment": "Template: HTTP 402 payment challenge. Copy and fill in real values.",
+  "status": 402,
+  "error": "Payment Required",
+  "quote_id": "<uuid>",
+  "resource_hash": "<sha256-of-endpoint:quote_id>",
+  "payment_details": {
+    "network": "testnet",
+    "receiver": "0.0.XXXXXX",
+    "amount_hbar": 0.5,
+    "memo": "hack-payment",
+    "issued_at": 1700000000,
+    "expires_at": 1700000600
+  },
+  "retry_instructions": "1. Send HBAR to receiver with memo. 2. POST {transaction_id, quote_id} to /api/payment/verify. 3. Retry with X-Payment-Token and X-Quote-Id headers."
+}
