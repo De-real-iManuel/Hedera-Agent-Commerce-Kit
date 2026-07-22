@@ -1,0 +1,16 @@
+{
+  "_comment": "Template: success receipt returned after payment verification",
+  "verified": true,
+  "quote_id": "<uuid>",
+  "transaction_id": "0.0.12345@1234567890.123456789",
+  "grant_expires_at": 1700000900,
+  "receipt": {
+    "transaction_id": "0.0.12345@1234567890.123456789",
+    "caller": "127.0.0.1",
+    "endpoint": "/api/premium-query",
+    "amount_hbar": 0.5,
+    "timestamp": 1700000650,
+    "hashscan_url": "https://hashscan.io/testnet/transaction/0.0.12345@1234567890.123456789"
+  },
+  "next_step": "Retry your request within 300s using X-Payment-Token and X-Quote-Id headers."
+}
