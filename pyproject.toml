@@ -16,12 +16,15 @@ dependencies = [
     "pydantic>=2.7.1",
     "pydantic-settings>=2.3.0",
     "python-dotenv>=1.0.1",
+    "reportlab>=4.2.0",
 ]
 
 [project.optional-dependencies]
 hedera = [
-    "hedera-agent-kit>=0.1.2",
-    "hiero-sdk-python>=2.6.0",
+    # hedera-agent-kit requires Python <3.14; install manually if available
+    # "hedera-agent-kit>=0.1.2",
+    # hiero-sdk-python 0.2.9+ supports Python 3.14 (without version pin)
+    "hiero-sdk-python",
 ]
 langchain = [
     "langchain>=0.3.25",
