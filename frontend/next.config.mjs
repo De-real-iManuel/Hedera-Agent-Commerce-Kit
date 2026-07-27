@@ -2,26 +2,15 @@
 const nextConfig = {
   reactStrictMode: true,
 
-  // Keep the heavy Hedera SDK + wallet-connect packages out of the SSR
-  // server bundle. They are Node.js-only packages that cannot run in the
-  // server renderer.
+  // @hashgraph/sdk is used exclusively in the Node.js API route
+  // (app/api/wallet/build-tx/route.ts). Keeping it out of the client bundle
+  // prevents webpack from trying to process its Node.js-only deps.
   serverExternalPackages: [
     "@hashgraph/sdk",
     "@hashgraph/proto",
-    "@hashgraph/hedera-wallet-connect",
     "@hiero-ledger/sdk",
     "@hiero-ledger/proto",
-    "@reown/walletkit",
-    "@walletconnect/core",
-    "@walletconnect/modal",
-    "@walletconnect/sign-client",
-    "@walletconnect/web3wallet",
-    "@walletconnect/types",
-    "@walletconnect/utils",
-    "@walletconnect/universal-provider",
   ],
-
-  transpilePackages: [],
 
   env: {
     NEXT_PUBLIC_API_BASE_URL:
@@ -36,4 +25,3 @@ const nextConfig = {
   },
 };
 export default nextConfig;
-

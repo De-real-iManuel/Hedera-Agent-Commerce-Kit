@@ -1,4 +1,15 @@
 'use client';
+/**
+ * useWalletConnect — Hedera wallet integration using raw WalletConnect v2.
+ *
+ * Zero Hedera SDK in the browser. Transaction bytes are built server-side
+ * via /api/wallet/build-tx (uses @hashgraph/sdk on Node.js) and sent to
+ * the wallet for signing via the hedera_signAndExecuteTransaction JSON-RPC
+ * method defined in HIP-820 / WalletConnect.
+ *
+ * Only @walletconnect/sign-client is used here — it is pure browser JS with
+ * no Node.js dependencies.
+ */
 
 import { useCallback, useEffect, useState } from 'react';
 
@@ -8,7 +19,7 @@ export interface UseWalletConnectReturn {
   network: string;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  sendHbar: (params: { recipientAccountId: string; amount: number; memo?: string }) => Promise<string>;
+  sendHbar: (params: SendHbarParams) => Promise<string>;
   isPending: boolean;
   error: string | null;
 }
@@ -21,37 +32,9 @@ export type SendHbarParams = {
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '';
 const NETWORK = process.env.NEXT_PUBLIC_HEDERA_NETWORK ?? 'testnet';
+const CHAIN_ID = NETWORK === 'mainnet' ? 'hedera:mainnet' : 'hedera:testnet';
 
-// Cache heavy SDK imports — resolved once on first use, never re-imported.
-// Re-importing @hashgraph/sdk on every sendHbar call was the source of the
-// ERR_MEMORY_ALLOCATION_FAILED crash in the Next.js dev server.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _sdkCache: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _wcCache: any = null;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _importPromise: Promise<[any, any]> | null = null;
-
-async function loadImports() {
-  if (_sdkCache && _wcCache) return [_sdkCache, _wcCache] as const;
-  if (_importPromise) return _importPromise;
-  _importPromise = Promise.all([
-    import(/* webpackIgnore: true */ '@hashgraph/sdk'),
-    import(/* webpackIgnore: true */ '@hashgraph/hedera-wallet-connect'),
-  ]).then(([sdk, wc]) => {
-    _sdkCache = sdk;
-    _wcCache = wc;
-    return [sdk, wc] as [typeof sdk, typeof wc];
-  });
-  return _importPromise;
-}
-
-const APP_METADATA = {
-  name: 'Hedera Agent Commerce Kit',
-  description: 'Pay-per-request infrastructure for AI agents on Hedera',
-  url: typeof window !== 'undefined' ? window.location.origin : 'https://hack.hedera.dev',
-  icons: [typeof window !== 'undefined' ? `${window.location.origin}/icon.png` : 'https://hack.hedera.dev/icon.png'],
-};
+// ─── Singleton state (module-level, survives re-renders) ──────────────────
 
 type WalletSnapshot = {
   isConnected: boolean;
@@ -69,136 +52,126 @@ let snapshot: WalletSnapshot = {
 
 const listeners = new Set<(s: WalletSnapshot) => void>();
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let connector: any = null;
+let client: any = null;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let connectorPromise: Promise<any> | null = null;
-let initialized = false;
-let txInFlight = false;
+let session: any = null;
+let clientPromise: Promise<unknown> | null = null;
 
 function emit(patch: Partial<WalletSnapshot>) {
   snapshot = { ...snapshot, ...patch };
-  listeners.forEach((listener) => listener(snapshot));
+  listeners.forEach((l) => l(snapshot));
 }
 
-function subscribe(listener: (s: WalletSnapshot) => void): () => void {
+function subscribe(listener: (s: WalletSnapshot) => void) {
   listeners.add(listener);
   listener(snapshot);
-  return () => {
-    listeners.delete(listener);
-  };
+  return () => { listeners.delete(listener); };
 }
 
+// ─── WalletConnect client (lazy, cached) ─────────────────────────────────
+
+async function getClient() {
+  if (client) return client;
+  if (clientPromise) return clientPromise;
+
+  if (!PROJECT_ID) {
+    throw new Error(
+      'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. ' +
+      'Get a free project ID from Reown Cloud and add it to frontend/.env.local.',
+    );
+  }
+
+  clientPromise = (async () => {
+    // @walletconnect/sign-client is pure browser JS — safe to import statically.
+    const { SignClient } = await import('@walletconnect/sign-client');
+    client = await SignClient.init({
+      projectId: PROJECT_ID,
+      metadata: {
+        name: 'Hedera Agent Commerce Kit',
+        description: 'Pay-per-request infrastructure for AI agents on Hedera',
+        url: typeof window !== 'undefined' ? window.location.origin : 'https://hack.hedera.dev',
+        icons: [
+          typeof window !== 'undefined'
+            ? `${window.location.origin}/icon.png`
+            : 'https://hack.hedera.dev/icon.png',
+        ],
+      },
+    });
+
+    // Restore existing session if any
+    const sessions = client.session.getAll();
+    if (sessions.length > 0) {
+      session = sessions[sessions.length - 1];
+      const accountId = extractAccountId(session);
+      if (accountId) emit({ isConnected: true, accountId });
+    }
+
+    client.on('session_delete', () => {
+      session = null;
+      emit({ isConnected: false, accountId: null });
+    });
+
+    return client;
+  })();
+
+  return clientPromise;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function accountFromSigner(signer: any): string | null {
+function extractAccountId(sess: any): string | null {
   try {
-    return signer?.getAccountId?.()?.toString?.() ?? null;
+    const accounts: string[] = Object.values(sess?.namespaces ?? {})
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .flatMap((ns: any) => ns?.accounts ?? [])
+      .filter((v): v is string => typeof v === 'string');
+    if (accounts.length === 0) return null;
+    // Format: "hedera:testnet:0.0.XXXXX"
+    const parts = accounts[0].split(':');
+    return parts[parts.length - 1] || null;
   } catch {
     return null;
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function accountFromSession(session: any): string | null {
-  const accounts = Object.values(session?.namespaces ?? {})
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .flatMap((ns: any) => ns?.accounts ?? [])
-    .filter((v): v is string => typeof v === 'string');
-  if (accounts.length === 0) return null;
-  const parts = accounts[0].split(':');
-  return parts[parts.length - 1] || null;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractTxId(result: any): string {
-  const candidates = [
-    result?.transactionId?.toString?.(),
-    result?.transactionId,
-    result?.response?.transactionId?.toString?.(),
-    result?.response?.transactionId,
-    result?.result?.transactionId?.toString?.(),
-    result?.result?.transactionId,
-    result?.result?.transaction_id,
-    result?.transaction_id,
-  ];
-  return candidates.find((v) => typeof v === 'string' && v.length > 0) ?? '';
-}
-
-async function getConnector() {
-  if (connector) return connector;
-  if (connectorPromise) return connectorPromise;
-
-  connectorPromise = (async () => {
-    if (!PROJECT_ID) {
-      throw new Error(
-        'NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID is not set. Get a free project ID from Reown Cloud and add it to frontend/.env.local.',
-      );
-    }
-
-    const [sdk, walletConnect] = await loadImports();
-
-    const {
-      DAppConnector,
-      HederaJsonRpcMethod,
-      HederaSessionEvent,
-      HederaChainId,
-    } = walletConnect;
-    const { LedgerId } = sdk;
-
-    const ledgerId = NETWORK === 'mainnet' ? LedgerId.MAINNET : LedgerId.TESTNET;
-
-    const c = new DAppConnector(
-      APP_METADATA,
-      ledgerId,
-      PROJECT_ID,
-      Object.values(HederaJsonRpcMethod),
-      [HederaSessionEvent.ChainChanged, HederaSessionEvent.AccountsChanged],
-      [NETWORK === 'mainnet' ? HederaChainId.Mainnet : HederaChainId.Testnet],
-    );
-
-    connector = c;
-    return c;
-  })();
-
-  return connectorPromise;
-}
-
-async function ensureInitialized() {
-  const c = await getConnector();
-  if (!initialized) {
-    await c.init({ logger: 'error' });
-    initialized = true;
-
-    const signers = c.signers ?? [];
-    const restored = signers.length > 0 ? accountFromSigner(signers[signers.length - 1]) : null;
-    if (restored) emit({ isConnected: true, accountId: restored });
-
-    const anyConnector = c as any;
-    if (typeof anyConnector.onSessionDisconnect === 'function') {
-      anyConnector.onSessionDisconnect(() => emit({ isConnected: false, accountId: null }));
-    }
-  }
-  return c;
-}
+// ─── Public hook ─────────────────────────────────────────────────────────
 
 export function useWalletConnect(): UseWalletConnectReturn {
   const [state, setState] = useState<WalletSnapshot>(snapshot);
-
   useEffect(() => subscribe(setState), []);
 
   const connect = useCallback(async (): Promise<void> => {
     emit({ isPending: true, error: null });
     try {
-      const c = await ensureInitialized();
-      const session = await c.openModal();
+      const c = await getClient();
 
-      let id = accountFromSession(session);
-      if (!id) {
-        const signers = c.signers ?? [];
-        id = signers.length > 0 ? accountFromSigner(signers[signers.length - 1]) : null;
+      const { uri, approval } = await c.connect({
+        optionalNamespaces: {
+          hedera: {
+            chains: [CHAIN_ID],
+            methods: ['hedera_signAndExecuteTransaction', 'hedera_executeTransaction'],
+            events: ['chainChanged', 'accountsChanged'],
+          },
+        },
+      });
+
+      // Open the WalletConnect QR modal
+      if (uri) {
+        const { WalletConnectModal } = await import('@walletconnect/modal');
+        const modal = new WalletConnectModal({ projectId: PROJECT_ID });
+        modal.openModal({ uri });
+
+        session = await approval();
+        modal.closeModal();
+      } else {
+        session = await approval();
       }
-      if (!id) throw new Error('WalletConnect paired, but no Hedera account was returned.');
 
-      emit({ isConnected: true, accountId: id, error: null });
+      const accountId = extractAccountId(session);
+      if (!accountId) throw new Error('No Hedera account returned from wallet.');
+
+      emit({ isConnected: true, accountId, error: null });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'WalletConnect pairing failed.';
       emit({ error: message });
@@ -209,64 +182,85 @@ export function useWalletConnect(): UseWalletConnectReturn {
   }, []);
 
   const disconnect = useCallback(async (): Promise<void> => {
-    if (txInFlight) {
-      const deadline = Date.now() + 60_000;
-      await new Promise<void>((resolve) => {
-        const poll = setInterval(() => {
-          if (!txInFlight || Date.now() >= deadline) {
-            clearInterval(poll);
-            resolve();
-          }
-        }, 200);
-      });
-    }
-
     try {
-      await connector?.disconnectAll?.();
+      if (client && session) {
+        await client.disconnect({
+          topic: session.topic,
+          reason: { code: 6000, message: 'User disconnected.' },
+        });
+      }
     } catch {
-      // WalletConnect sometimes logs `{}` on disconnect. Safe to ignore.
+      // ignore
     }
-    connector = null;
-    connectorPromise = null;
-    initialized = false;
+    session = null;
     emit({ isConnected: false, accountId: null, error: null });
   }, []);
 
-  const sendHbar = useCallback(async ({ recipientAccountId, amount, memo = 'hack-payment' }: SendHbarParams): Promise<string> => {
-    const activeAccount = snapshot.accountId;
-    if (!snapshot.isConnected || !activeAccount) throw new Error('Wallet is not connected.');
-
-    emit({ isPending: true, error: null });
-    txInFlight = true;
-    try {
-      const c = await ensureInitialized();
-      const [{ AccountId, Hbar, TransferTransaction, TransactionId }, { transactionToBase64String }] = await loadImports();
-
-      const tx = new TransferTransaction()
-        .addHbarTransfer(AccountId.fromString(activeAccount), new Hbar(amount).negated())
-        .addHbarTransfer(AccountId.fromString(recipientAccountId), new Hbar(amount))
-        .setTransactionMemo(memo)
-        .setTransactionId(TransactionId.generate(AccountId.fromString(activeAccount)));
-
-      const result = await c.signAndExecuteTransaction({
-        signerAccountId: `hedera:${NETWORK}:${activeAccount}`,
-        transactionList: transactionToBase64String(tx),
-      });
-
-      const txId = extractTxId(result);
-      if (!txId) {
-        throw new Error('Wallet submitted the transaction but did not return a transaction ID. Check the wallet transaction history.');
+  const sendHbar = useCallback(
+    async ({ recipientAccountId, amount, memo = 'hack-payment' }: SendHbarParams): Promise<string> => {
+      const activeAccount = snapshot.accountId;
+      if (!snapshot.isConnected || !activeAccount || !session) {
+        throw new Error('Wallet is not connected.');
       }
-      return txId;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'HBAR payment failed.';
-      emit({ error: message });
-      throw err instanceof Error ? err : new Error(message);
-    } finally {
-      txInFlight = false;
-      emit({ isPending: false });
-    }
-  }, []);
+
+      emit({ isPending: true, error: null });
+      try {
+        const c = await getClient();
+
+        // Build the transaction server-side (Node.js / @hashgraph/sdk)
+        const res = await fetch('/api/wallet/build-tx', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            senderAccountId: activeAccount,
+            recipientAccountId,
+            amount,
+            memo,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error ?? `build-tx failed (${res.status})`);
+        }
+
+        const { transactionBytes } = await res.json() as { transactionBytes: string };
+
+        // Send to wallet for signing via HIP-820 JSON-RPC
+        const result = await c.request({
+          topic: session.topic,
+          chainId: CHAIN_ID,
+          request: {
+            method: 'hedera_signAndExecuteTransaction',
+            params: { transactionList: transactionBytes },
+          },
+        });
+
+        // Extract transaction ID from wallet response
+        const txId: string =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (result as any)?.transactionId ??
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (result as any)?.response?.transactionId ??
+          '';
+
+        if (!txId) {
+          throw new Error(
+            'Wallet submitted the transaction but did not return a transaction ID.',
+          );
+        }
+
+        return txId;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'HBAR payment failed.';
+        emit({ error: message });
+        throw err instanceof Error ? err : new Error(message);
+      } finally {
+        emit({ isPending: false });
+      }
+    },
+    [],
+  );
 
   return {
     isConnected: state.isConnected,
