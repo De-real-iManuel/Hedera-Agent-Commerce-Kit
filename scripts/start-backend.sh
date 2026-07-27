@@ -15,8 +15,10 @@ if [ -f .env ]; then
   export $(grep -v '^#' .env | xargs)
 fi
 
-echo "==> Starting backend on http://localhost:${BACKEND_PORT:-8000}"
-uvicorn backend.main:app \
+echo "==> Starting HACK backend on http://localhost:${BACKEND_PORT:-8000}"
+echo "    Docs: http://localhost:${BACKEND_PORT:-8000}/docs"
+
+uvicorn demo.main:app \
   --host "${BACKEND_HOST:-0.0.0.0}" \
   --port "${BACKEND_PORT:-8000}" \
   --reload
