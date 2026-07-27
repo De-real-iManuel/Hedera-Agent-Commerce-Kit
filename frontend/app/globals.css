@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+html, body {
+  background-color: #09090b;
+  color: #fafafa;
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { border-color: #27272a; }
+
+::selection { background: rgba(124, 58, 237, 0.35); color: #fafafa; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: #09090b; }
+::-webkit-scrollbar-thumb { background: #27272a; border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(39,39,42,0.35) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(39,39,42,0.35) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.bg-radial-purple {
+  background: radial-gradient(circle at center, rgba(124,58,237,0.25), transparent 60%);
+}
+
+.terminal-cursor::after {
+  content: "▊"; color: #7c3aed; margin-left: 2px;
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 0%,50% { opacity: 1 } 51%,100% { opacity: 0 } }
+
+.prose-hack { color: #a1a1aa; }
+.prose-hack h1, .prose-hack h2, .prose-hack h3, .prose-hack h4 {
+  color: #fafafa; font-weight: 600; letter-spacing: -0.01em;
+}
+.prose-hack h1 { font-size: 2rem; margin: 1.5rem 0 1rem; }
+.prose-hack h2 { font-size: 1.5rem; margin: 2rem 0 0.75rem; }
+.prose-hack h3 { font-size: 1.15rem; margin: 1.5rem 0 0.5rem; }
+.prose-hack p { line-height: 1.7; margin: 0.75rem 0; }
+.prose-hack a { color: #7c3aed; text-decoration: underline; text-underline-offset: 3px; }
+.prose-hack code {
+  font-family: var(--font-jetbrains), ui-monospace, monospace;
+  font-size: 0.875em; background: #18181b;
+  padding: 2px 6px; border-radius: 4px; border: 1px solid #27272a;
+}
+.prose-hack ul { list-style: disc; margin-left: 1.5rem; }
+.prose-hack ol { list-style: decimal; margin-left: 1.5rem; }
+.prose-hack li { margin: 0.25rem 0; }
