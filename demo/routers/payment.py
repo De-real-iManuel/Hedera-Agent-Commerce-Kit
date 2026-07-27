@@ -24,7 +24,14 @@ router = APIRouter(prefix="/payment", tags=["Payment (x402)"])
 
 
 class ChallengeRequest(BaseModel):
-    endpoint: str = "/api/premium-query"
+    # Support both field names: frontend sends "resource_path", legacy sends "endpoint"
+    resource_path: str = "/api/premium-query"
+    endpoint: str = ""
+    amount_hbar: float | None = None
+
+    @property
+    def resolved_endpoint(self) -> str:
+        return self.endpoint or self.resource_path
 
 
 class VerifyRequest(BaseModel):
@@ -48,15 +55,25 @@ async def payment_challenge(body: ChallengeRequest, request: Request):
     s = container.settings
     lifecycle = container.lifecycle
 
+    amount = body.amount_hbar if body.amount_hbar is not None else s.x402_payment_amount_hbar
     quote = lifecycle.create_quote(
-        endpoint=body.endpoint,
-        amount_hbar=s.x402_payment_amount_hbar,
+        endpoint=body.resolved_endpoint,
+        amount_hbar=amount,
         receiver=s.x402_payment_receiver_account_id,
     )
+    # Flat response shape that frontend PaymentGate / ChallengeResponse type expects:
+    # { quote_id, receiver, amount_hbar, memo, expires_at, network, resource_hash }
     return {
         "status": 402,
         "quote_id": quote.quote_id,
         "resource_hash": quote.resource_hash,
+        "receiver": quote.receiver,
+        "amount_hbar": quote.amount_hbar,
+        "memo": s.x402_payment_memo,
+        "network": s.hedera_network,
+        "issued_at": int(quote.issued_at),
+        "expires_at": int(quote.expires_at),
+        # Legacy nested shape preserved for backward-compat callers
         "payment_details": {
             "network": s.hedera_network,
             "receiver": quote.receiver,
@@ -154,7 +171,11 @@ async def payment_verify(body: VerifyRequest, request: Request):
         "verified": True,
         "quote_id": quote_id,
         "transaction_id": tx_id,
+        "state": "granted",
         "grant_expires_at": int(quote.grant_expires_at or 0),
+        # Flat fields expected by frontend VerifyResponse type:
+        "hcs_status": published_receipt.hcs_status,
+        "hashscan_url": f"https://hashscan.io/{s.hedera_network}/transaction/{tx_id}",
         "receipt": published_receipt.model_dump(),
         "next_step": (
             f"Retry your request within {max(remaining, 0)}s using headers "

@@ -53,14 +53,20 @@ async def _run(query: str, thread_id: str, request: Request) -> dict:
         result = await run_agent_query(
             query=query, settings=s, thread_id=thread_id, agent=agent
         )
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                f"Hedera Agent Kit unavailable: {exc}. "
-                "Set an LLM API key in .env (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY)."
-            ),
-        )
+    except (RuntimeError, ImportError, ModuleNotFoundError) as exc:
+        # hedera-agent-kit not available — fall back to a lightweight Mirror Node
+        # query so the agent endpoint still returns real on-chain data.
+        from hack.agent.fallback import run_fallback_query
+        try:
+            result = await run_fallback_query(query=query, settings=s)
+        except Exception as inner:  # noqa: BLE001
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    f"Hedera Agent Kit unavailable: {exc}. "
+                    "Set an LLM API key in .env (OPENAI_API_KEY, ANTHROPIC_API_KEY, or GROQ_API_KEY)."
+                ),
+            )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc))
 
