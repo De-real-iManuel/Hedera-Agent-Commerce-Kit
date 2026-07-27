@@ -36,8 +36,8 @@ async function loadImports() {
   if (_sdkCache && _wcCache) return [_sdkCache, _wcCache] as const;
   if (_importPromise) return _importPromise;
   _importPromise = Promise.all([
-    import('@hashgraph/sdk'),
-    import('@hashgraph/hedera-wallet-connect'),
+    import(/* webpackIgnore: true */ '@hashgraph/sdk'),
+    import(/* webpackIgnore: true */ '@hashgraph/hedera-wallet-connect'),
   ]).then(([sdk, wc]) => {
     _sdkCache = sdk;
     _wcCache = wc;

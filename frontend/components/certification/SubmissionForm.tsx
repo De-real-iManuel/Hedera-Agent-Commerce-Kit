@@ -15,14 +15,25 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { Check, ShieldCheck, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { FadeUp } from "@/components/ui/Motion";
-import { PaymentGate } from "./PaymentGate";
-import { WalletConnectModal } from "./WalletConnectModal";
 import { AnalysisProgress } from "./AnalysisProgress";
 import { api, isApiError } from "@/lib/api";
 import type { CertificationSubmission, AuditSubmitResponse } from "@/lib/types";
+
+// Wallet-dependent components use the Hedera SDK (Node.js-only packages).
+// Dynamic import with ssr:false keeps them out of the webpack client bundle
+// entirely — they are loaded in the browser only when actually needed.
+const PaymentGate = dynamic(
+  () => import("./PaymentGate").then((m) => m.PaymentGate),
+  { ssr: false },
+);
+const WalletConnectModal = dynamic(
+  () => import("./WalletConnectModal").then((m) => m.WalletConnectModal),
+  { ssr: false },
+);
 
 const CHECKS = [
   {
