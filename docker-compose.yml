@@ -1,0 +1,50 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hack-backend
+    env_file:
+      - .env
+    environment:
+      PORT: "8000"
+      BACKEND_HOST: "0.0.0.0"
+      BACKEND_PORT: "8000"
+      COMPLIANCE_STORE_DIR: "/app/data/reports"
+      HACK_STATE_FILE: "/app/state/.hack_state.json"
+      FRONTEND_ORIGIN: "http://localhost:3000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - hack_reports:/app/data
+      - hack_state:/app/state
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: "http://localhost:8000"
+        NEXT_PUBLIC_HEDERA_NETWORK: "testnet"
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}"
+    container_name: hack-frontend
+    environment:
+      NODE_ENV: "production"
+      NEXT_PUBLIC_API_BASE_URL: "http://localhost:8000"
+      NEXT_PUBLIC_HEDERA_NETWORK: "testnet"
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: "${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}"
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  hack_reports:
+  hack_state:

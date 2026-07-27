@@ -1,0 +1,46 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.hack_state.json
+
+# Git / editor
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+.envrc
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Node / frontend build artifacts
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.vercel/
+frontend/npm-debug.log*
+
+# Runtime/generated data (mount these instead)
+data/
+reports/
+*.pdf
+
+# Local-only assets and caches
+.cache/
+coverage/
