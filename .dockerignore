@@ -44,3 +44,12 @@ reports/
 # Local-only assets and caches
 .cache/
 coverage/
+
+# Tests and dev scripts — not needed in the image
+tests/
+scripts/
+examples/
+commands/
+docs/
+frontend/
+demo/routers/__pycache__/

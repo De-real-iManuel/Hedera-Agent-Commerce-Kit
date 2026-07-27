@@ -26,31 +26,34 @@ const nextConfig = {
 
   webpack(config, { isServer }) {
     if (!isServer) {
-      // These packages are loaded via dynamic import() in the browser and
-      // must NOT be bundled by webpack — they contain native/Node.js deps
-      // (protobufjs, grpc, etc.) that don't work in the browser bundle.
-      // Using a function-based external to remain compatible with Next 15.x
-      config.externals = [
-        ...(Array.isArray(config.externals) ? config.externals : [config.externals].filter(Boolean)),
-        function ({ request }, callback) {
-          const hederaExternals = [
-            "@hashgraph/sdk",
-            "@hashgraph/proto",
-            "@hashgraph/hedera-wallet-connect",
-            "@hiero-ledger/sdk",
-            "@hiero-ledger/proto",
-            "@reown/walletkit",
-            "@walletconnect/core",
-            "@walletconnect/sign-client",
-            "@walletconnect/web3wallet",
-            "@walletconnect/universal-provider",
-          ];
-          if (hederaExternals.some((pkg) => request === pkg || request?.startsWith(pkg + "/"))) {
-            return callback(null, "commonjs " + request);
-          }
-          callback();
-        },
+      // Mark Hedera/WalletConnect packages as browser externals using the
+      // window global as a placeholder. They are only resolved via dynamic
+      // import() at runtime — webpack must not try to bundle them.
+      // Using `false` tells webpack "this module doesn't exist at build time,
+      // skip it" which is safe because useWalletConnect.ts uses dynamic
+      // import() which is resolved at runtime by the browser from the
+      // CDN/node_modules copy that Next.js serves.
+    const hederaExternals = [
+        "@hashgraph/sdk",
+        "@hashgraph/proto",
+        "@hashgraph/hedera-wallet-connect",
+        "@hiero-ledger/sdk",
+        "@hiero-ledger/proto",
+        "@reown/walletkit",
+        "@walletconnect/core",
+        "@walletconnect/sign-client",
+        "@walletconnect/web3wallet",
+        "@walletconnect/universal-provider",
       ];
+
+      config.resolve = config.resolve || {};
+      config.resolve.alias = config.resolve.alias || {};
+
+      // Alias Node-only Hedera SDK packages to an empty stub at build time.
+      // The real packages are loaded at runtime via dynamic import().
+      for (const pkg of hederaExternals) {
+        config.resolve.alias[pkg] = false;
+      }
     }
     return config;
   },

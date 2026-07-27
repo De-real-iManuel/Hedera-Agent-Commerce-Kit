@@ -74,7 +74,7 @@ export function PaymentGate({
     setStep("loading");
     setErrorMsg("");
     try {
-      const data = await api.challenge({ resource_path: "/api/compliance/check" });
+      const data = await api.challenge({ resource_path: "/api/premium-query" });
       setChallenge({
         quote_id: data.quote_id,
         receiver: data.receiver,
