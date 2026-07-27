@@ -6,20 +6,47 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "14.2.4",
-    "react": "^18",
-    "react-dom": "^18"
+    "@hashgraph/hedera-wallet-connect": "1.5.1",
+    "@hashgraph/proto": "^2.25.0",
+    "@hashgraph/sdk": "^2.53.0",
+    "@hiero-ledger/sdk": "^2.86.2",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-separator": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.4",
+    "@react-pdf/renderer": "^4.0.0",
+    "@reown/walletkit": "^1.5.6",
+    "@walletconnect/modal": "^2.7.0",
+    "@walletconnect/qrcode-modal": "^1.8.0",
+    "@walletconnect/sign-client": "^2.17.0",
+    "@walletconnect/universal-provider": "^2.23.10",
+    "@walletconnect/web3wallet": "^1.16.1",
+    "autoprefixer": "^10.4.20",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "framer-motion": "^11.11.0",
+    "lucide-react": "^0.454.0",
+    "next": "15.0.3",
+    "postcss": "^8.4.47",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-syntax-highlighter": "^15.6.1",
+    "tailwind-merge": "^2.5.4",
+    "tailwindcss": "^3.4.14",
+    "typescript": "5.6.3"
   },
   "devDependencies": {
-    "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "autoprefixer": "^10.0.1",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
-    "typescript": "^5"
+    "@types/node": "22.9.0",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.14.0",
+    "eslint-config-next": "15.0.3"
   }
 }
