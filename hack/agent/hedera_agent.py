@@ -27,10 +27,34 @@ from typing import Any
 
 def _build_llm(settings: Any):
     """Pick the first available LLM based on configured API keys."""
+    # Use groq_api_key first (fastest, free); fall back to openai, then anthropic.
+    # The model name comes from settings.llm_model so .env controls it.
+    model_name = getattr(settings, "llm_model", "gpt-4o-mini") or "gpt-4o-mini"
+
+    if settings.groq_api_key:
+        from langchain_openai import ChatOpenAI  # type: ignore
+
+        groq_base = "https://api.groq.com/openai/v1"
+        # Groq doesn't support gpt-* models; default to llama if the configured
+        # model looks like an OpenAI name.
+        groq_model = model_name
+        if groq_model.startswith("gpt-") or groq_model.startswith("o1"):
+            groq_model = "llama3-8b-8192"
+        return ChatOpenAI(
+            model=groq_model,
+            api_key=settings.groq_api_key,
+            base_url=groq_base,
+        )
+
     if settings.openai_api_key:
         from langchain_openai import ChatOpenAI  # type: ignore
 
-        return ChatOpenAI(model="gpt-4o-mini", api_key=settings.openai_api_key)
+        base_url = getattr(settings, "openai_base_url", "https://api.openai.com/v1") or "https://api.openai.com/v1"
+        return ChatOpenAI(
+            model=model_name,
+            api_key=settings.openai_api_key,
+            base_url=base_url,
+        )
 
     if settings.anthropic_api_key:
         from langchain_anthropic import ChatAnthropic  # type: ignore
@@ -39,11 +63,6 @@ def _build_llm(settings: Any):
             model="claude-3-haiku-20240307",
             api_key=settings.anthropic_api_key,
         )
-
-    if settings.groq_api_key:
-        from langchain_groq import ChatGroq  # type: ignore
-
-        return ChatGroq(model="llama3-8b-8192", api_key=settings.groq_api_key)
 
     raise RuntimeError(
         "No LLM API key configured. "
