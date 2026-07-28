@@ -1,5 +1,7 @@
 # Hedera Agent Commerce Kit
 
+![HACK Banner](docs/hack-banner.jpg)
+
 **Open-source compliance infrastructure for x402-powered AI commerce on Hedera.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square)](https://python.org)
