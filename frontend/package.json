@@ -12,6 +12,8 @@
   "dependencies": {
     "@hiero-ledger/sdk": "^2.86.2",
     "@hashgraph/sdk": "^2.53.0",
+    "@hashgraph/hedera-wallet-connect": "1.5.1",
+    "@hashgraph/proto": "^2.25.0",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-separator": "^1.1.0",
     "@radix-ui/react-slot": "^1.1.0",
