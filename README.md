@@ -1,6 +1,6 @@
 # Hedera Agent Commerce Kit
 
-![HACK Banner](docs/hack-banner.jpg)
+![HACK Banner](docs/hack-banner.png)
 
 **Open-source compliance infrastructure for x402-powered AI commerce on Hedera.**
 
