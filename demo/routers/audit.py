@@ -27,7 +27,7 @@ Every response is real. No mocks.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 from hack.models.compliance import ServiceAuditRequest
 
@@ -206,7 +206,6 @@ async def get_report_pdf(report_id: str, request: Request):
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found.")
 
-    # Try to attach the certificate for the on-chain audit trail section
     cert = None
     for row in store.list_certificates(limit=200):
         if row.report_id == report_id:
@@ -216,11 +215,21 @@ async def get_report_pdf(report_id: str, request: Request):
     existing = store.get_pdf_path(report_id)
     if existing is None:
         data = pdf.render(report, cert)
-        existing = store.save_pdf(report_id, data)
-    return FileResponse(
-        existing,
+        store.save_pdf(report_id, data)
+    else:
+        data = existing.read_bytes() if hasattr(existing, "read_bytes") else None
+        if not data:
+            data = pdf.render(report, cert)
+            store.save_pdf(report_id, data)
+
+    return Response(
+        content=data,
         media_type="application/pdf",
-        filename=f"hack-compliance-{report_id[:8]}.pdf",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="hack-compliance-{report_id[:8]}.pdf"'
+            )
+        },
     )
 
 

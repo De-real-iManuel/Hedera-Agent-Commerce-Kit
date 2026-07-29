@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .audit.service_auditor import ServiceAuditor
 from .audit.store import ReportStore
+from .audit.pg_store import PostgresReportStore
 from .compliance.certifier import CertificationService
 from .compliance.engine import ComplianceEngine
 from .compliance.rules import DEFAULT_RULES
@@ -41,7 +42,7 @@ class ServiceContainer:
         self._certifier: CertificationService | None = None
         self._nft_service: NftMintingService | None = None
         self._service_auditor: ServiceAuditor | None = None
-        self._report_store: ReportStore | None = None
+        self._report_store: ReportStore | PostgresReportStore | None = None
         self._pdf: PdfReporter | None = None
         self._skill_md: SkillMdGenerator | None = None
 
@@ -141,7 +142,13 @@ class ServiceContainer:
     @property
     def report_store(self) -> ReportStore:
         if self._report_store is None:
-            self._report_store = ReportStore(base_dir=self._settings.compliance_store_dir)
+            s = self._settings
+            if s.database_url:
+                # Postgres-backed store — survives container restarts on Render
+                self._report_store = PostgresReportStore(database_url=s.database_url)
+            else:
+                # File-backed store — used for local dev
+                self._report_store = ReportStore(base_dir=s.compliance_store_dir)
         return self._report_store
 
     @property

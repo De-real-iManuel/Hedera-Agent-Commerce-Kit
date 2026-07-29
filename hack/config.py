@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     compliance_probe_timeout_sec: int = 15
     compliance_store_dir: str = "./data/reports"
 
+    # ── Database (optional — Postgres for persistent storage on Render) ────────
+    # Set DATABASE_URL to a PostgreSQL connection string to use Postgres-backed
+    # report/certificate storage. Falls back to the file store when not set.
+    database_url: str = ""
+
     # ── Server ───────────────────────────────────────────────────────────────
     backend_port: int = 8000
     backend_host: str = "0.0.0.0"
