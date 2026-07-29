@@ -93,13 +93,16 @@ class NftMintingService:
         _state = _read_state()
         self._metadata_cid: str = (
             _state.get("nft_metadata_cid")
-            or "bafkreibh2ykv3qibpw77y653o6fdqamymdaiwy5cxw5vbjqya3e4giykle"
+            # Known-good HIP-412 metadata JSON CID — uploaded to Pinata IPFS.
+            # Contains name, description, image, attributes per the HIP-412 standard.
+            # Serial #4 on token 0.0.9744724 used this CID and renders correctly.
+            or "bafkreibqvzvlg7y53sn6xz4gch375lymyp2ds2xmox6patzfplunzwghle"
         )
 
     # ─── Public API ──────────────────────────────────────────────────────────
 
     def mint(self, metadata: dict, recipient_account_id: str) -> NftMintResult:
-        """Mint one certificate NFT with compact on-chain metadata. Blocking."""
+        """Mint one certificate NFT and transfer it to the recipient. Blocking."""
         try:
             client, operator_id_obj, private_key = self._build_client()
             token_id_str = self._ensure_token(client, operator_id_obj, private_key)
@@ -111,15 +114,33 @@ class NftMintingService:
                 client, token_id_str, [on_chain_metadata]
             )
 
+            # Transfer the NFT to the payer's wallet (best-effort).
+            # Requires: recipient account associates the token, we unfreeze it,
+            # then transfer. If the recipient hasn't associated yet we skip —
+            # the NFT stays in treasury and recipient_account_id is in metadata.
+            transfer_tx_id = ""
+            if recipient_account_id and recipient_account_id != self._operator_id and serial > 0:
+                try:
+                    transfer_tx_id = self._transfer_nft(
+                        client, operator_id_obj, private_key,
+                        token_id_str, serial, recipient_account_id,
+                    )
+                except Exception as transfer_exc:  # noqa: BLE001
+                    import logging
+                    logging.getLogger("hack.nft").warning(
+                        "NFT transfer to %s failed (NFT stays in treasury): %s",
+                        recipient_account_id, transfer_exc,
+                    )
+
             return NftMintResult(
                 token_id=token_id_str,
                 serial_number=serial,
-                transaction_id=tx_id,
+                transaction_id=transfer_tx_id or tx_id,
                 metadata_hash=metadata_hash,
                 treasury_account_id=self._operator_id,
                 recipient_account_id=recipient_account_id or self._operator_id,
                 hashscan_token_url=self._hashscan_token(token_id_str),
-                hashscan_tx_url=self._hashscan_tx(tx_id),
+                hashscan_tx_url=self._hashscan_tx(transfer_tx_id or tx_id),
                 minted_at=int(time.time()),
             )
         except Exception as exc:  # noqa: BLE001
@@ -205,6 +226,60 @@ class NftMintingService:
         )
         serial = int(serials[0]) if serials else 0
         return tx_id, serial
+
+    def _transfer_nft(
+        self,
+        client,
+        operator_id_obj,
+        private_key,
+        token_id_str: str,
+        serial: int,
+        recipient_account_id: str,
+    ) -> str:
+        """
+        Transfer a minted NFT from the treasury to the recipient.
+
+        Steps:
+          1. TokenAssociateTransaction  — recipient opts in to hold the token.
+             This must be signed by the RECIPIENT, so we skip if we don't have
+             their key. Instead, we attempt unfreeze + transfer and catch errors.
+          2. TokenUnfreezeTransaction   — unfreeze the recipient account for this
+             token (required because freeze_default=True on the collection).
+          3. TransferTransaction (NftTransfer) — move the serial to recipient.
+
+        If the recipient hasn't associated the token yet, step 3 will fail
+        with TOKEN_NOT_ASSOCIATED_TO_ACCOUNT. We surface this as a warning
+        and leave the NFT in the treasury — it is still attributed to the
+        recipient in the on-chain metadata.
+        """
+        from hiero_sdk_python import (  # type: ignore
+            AccountId,
+            NftId,
+            TokenId,
+            TokenUnfreezeTransaction,
+            TransferTransaction,
+        )
+
+        token_id = TokenId.from_string(token_id_str)
+        recipient = AccountId.from_string(recipient_account_id)
+        nft_id = NftId(token_id, serial)
+
+        # Step 1: Unfreeze recipient for this token (operator signs as freeze key).
+        unfreeze_tx = (
+            TokenUnfreezeTransaction()
+            .set_token_id(token_id)
+            .set_account_id(recipient)
+        )
+        unfreeze_tx.execute(client)
+
+        # Step 2: Transfer the NFT.
+        transfer_tx = (
+            TransferTransaction()
+            .add_nft_transfer(nft_id, operator_id_obj, recipient)
+        )
+        receipt = transfer_tx.execute(client)
+        tx_id = str(getattr(receipt, "transaction_id", "") or "")
+        return tx_id
 
     # IPFS CID for the HACK compliance certificate image (HIP-412)
     CERTIFICATE_IMAGE_CID = "bafkreibh2ykv3qibpw77y653o6fdqamymdaiwy5cxw5vbjqya3e4giykle"

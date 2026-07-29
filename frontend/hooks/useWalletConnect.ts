@@ -173,7 +173,47 @@ async function getConnector() {
 async function ensureInitialized() {
   const c = await getConnector();
   if (!_initialized) {
-    await c.init({ logger: 'error' });
+    // mobileWallets and desktopWallets are shown in the WalletConnect modal.
+    // HashPack and Kabila are the primary Hedera wallets — deep links work on
+    // both iOS and Android.
+    await c.init({
+      logger: 'error',
+      // Pass mobile wallet deep link config so the modal shows
+      // "Open in HashPack" / "Open in Kabila" on mobile browsers.
+      walletConnectModalConfig: {
+        mobileWallets: [
+          {
+            id: 'hashpack',
+            name: 'HashPack',
+            links: {
+              native: 'hashpack://',
+              universal: 'https://www.hashpack.app/download',
+            },
+          },
+          {
+            id: 'kabila',
+            name: 'Kabila',
+            links: {
+              native: 'kabila://',
+              universal: 'https://kabila.app',
+            },
+          },
+        ],
+        desktopWallets: [
+          {
+            id: 'hashpack',
+            name: 'HashPack',
+            links: {
+              native: '',
+              universal: 'https://www.hashpack.app',
+            },
+          },
+        ],
+        // Show QR code by default on desktop
+        enableExplorer: true,
+        explorerRecommendedWalletIds: ['hashpack'],
+      },
+    } as Parameters<typeof c.init>[0]);
     _initialized = true;
 
     const signers = c.signers ?? [];
