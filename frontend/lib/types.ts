@@ -95,6 +95,8 @@ export interface SoulboundCertificate {
   recipient_account_id: string; treasury_account_id: string;
   minted_at: number; hcs_topic_id?: string | null;
   hcs_receipt_tx?: string | null;
+  hcs_sequence_number?: number | null;           // sequence number of the HCS message
+  hashscan_hcs_message_url?: string | null;      // direct link to the specific HCS message
   payment_transaction_id?: string | null;
   mint_transaction_id: string; metadata_hash: string;
   hashscan_token_url: string; hashscan_tx_url: string;

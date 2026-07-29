@@ -105,6 +105,7 @@ class ReceiptModel(BaseModel):
     hashscan_url: str
     hcs_status: str = "pending"
     hcs_error: Optional[str] = None
+    hcs_sequence_number: Optional[int] = None  # HCS topic sequence number of the submitted message
 
 
 class UsageRecord(BaseModel):

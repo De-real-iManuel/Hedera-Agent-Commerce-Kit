@@ -52,15 +52,19 @@ def _submit_to_hcs_sync(
     client,
     topic_id_str: str,
     message: str,
-) -> None:
-    """Blocking call — must be run in an executor."""
+) -> int:
+    """Blocking call — returns the topic sequence number. Run in an executor."""
     from hiero_sdk_python import TopicId, TopicMessageSubmitTransaction  # type: ignore
 
     topic_id = TopicId.from_string(topic_id_str)
-    TopicMessageSubmitTransaction(
+    receipt = TopicMessageSubmitTransaction(
         topic_id=topic_id,
         message=message.encode("utf-8"),
     ).execute(client)
+
+    # The receipt contains the sequence number assigned to this message.
+    seq = getattr(receipt, "topic_sequence_number", None) or getattr(receipt, "topicSequenceNumber", None)
+    return int(seq) if seq is not None else 0
 
 
 class HCSReceiptService(ReceiptService):
@@ -108,7 +112,7 @@ class HCSReceiptService(ReceiptService):
                 )
 
             message = json.dumps(receipt.model_dump())
-            await loop.run_in_executor(
+            seq = await loop.run_in_executor(
                 None,
                 _submit_to_hcs_sync,
                 client,
@@ -117,6 +121,8 @@ class HCSReceiptService(ReceiptService):
             )
             receipt.hcs_status = "published"
             receipt.hcs_error = None
+            if seq:
+                receipt.hcs_sequence_number = seq
         except Exception as exc:  # noqa: BLE001
             receipt.hcs_status = "failed"
             receipt.hcs_error = str(exc)

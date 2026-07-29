@@ -149,6 +149,8 @@ class SoulboundCertificate(BaseModel):
     minted_at: int
     hcs_topic_id: Optional[str] = None            # topic where receipt is anchored
     hcs_receipt_tx: Optional[str] = None          # HCS submit tx for the anchor
+    hcs_sequence_number: Optional[int] = None     # sequence number of the HCS message
+    hashscan_hcs_message_url: Optional[str] = None  # direct link to the HCS message
     payment_transaction_id: Optional[str] = None  # the original HBAR payment tx
     mint_transaction_id: str
     metadata_hash: str                             # sha256 of full metadata JSON

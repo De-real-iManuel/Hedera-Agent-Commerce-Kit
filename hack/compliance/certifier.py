@@ -212,6 +212,14 @@ class CertificationService:
                 cert.hcs_receipt_tx = published.transaction_id
                 if published.hcs_status == "published":
                     report.hcs_receipt_id = published.transaction_id
+                    # Build a direct link to the specific HCS message.
+                    # HashScan supports ?sequenceNumber= to jump to the exact message.
+                    if published.hcs_sequence_number and self._hcs_topic_id:
+                        cert.hcs_sequence_number = published.hcs_sequence_number
+                        cert.hashscan_hcs_message_url = (
+                            f"https://hashscan.io/{network}/topic/{self._hcs_topic_id}"
+                            f"?sequenceNumber={published.hcs_sequence_number}"
+                        )
             except Exception:  # noqa: BLE001
                 pass
 

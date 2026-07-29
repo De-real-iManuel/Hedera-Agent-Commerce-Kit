@@ -177,11 +177,24 @@ export function SoulboundCertificateCard({ cert, reportUrl }: Props) {
             )}
 
             {cert.hcs_receipt_tx && (
-              <MetaField label="HCS Receipt TX" value={cert.hcs_receipt_tx.slice(0, 20) + "…"} mono copyable full={cert.hcs_receipt_tx}>
+              <MetaField
+                label={cert.hcs_sequence_number ? `HCS Message #${cert.hcs_sequence_number}` : "HCS Receipt TX"}
+                value={cert.hcs_receipt_tx.slice(0, 20) + "…"}
+                mono copyable full={cert.hcs_receipt_tx}
+              >
                 <a
-                  href={`${HASHSCAN}/transaction/${cert.hcs_receipt_tx}`}
+                  href={
+                    // Prefer the direct message link (topic + sequenceNumber) —
+                    // this jumps to the exact HCS message that anchors this cert.
+                    // Falls back to the submit transaction page.
+                    cert.hashscan_hcs_message_url ??
+                    (cert.hcs_topic_id && cert.hcs_sequence_number
+                      ? `${HASHSCAN}/topic/${cert.hcs_topic_id}?sequenceNumber=${cert.hcs_sequence_number}`
+                      : `${HASHSCAN}/transaction/${cert.hcs_receipt_tx}`)
+                  }
                   target="_blank" rel="noopener noreferrer"
                   className="text-cyan hover:text-cyan/80 shrink-0"
+                  title={cert.hcs_sequence_number ? `View HCS message #${cert.hcs_sequence_number} on HashScan` : "View HCS submit transaction"}
                 >
                   <ExternalLink className="h-3 w-3" />
                 </a>
