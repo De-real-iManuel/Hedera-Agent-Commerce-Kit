@@ -96,7 +96,7 @@ async def run_audit(
     # 1. Verify the payment on Mirror Node (real check)
     try:
         min_tinybars = int(s.x402_payment_amount_hbar * 100_000_000)
-        await verifier.verify(
+        tx_data = await verifier.verify(
             transaction_id=transaction_id.strip(),
             receiver=s.x402_payment_receiver_account_id,
             min_tinybars=min_tinybars,
@@ -108,6 +108,23 @@ async def run_audit(
         raise HTTPException(
             status_code=502, detail=f"Mirror Node unavailable: {exc}.",
         )
+
+    # Extract the actual payer account from the transaction transfers.
+    # The payer is the account with a negative HBAR transfer (they sent HBAR).
+    # This is used as the NFT certificate recipient so it goes to the right wallet.
+    payer_account_id: str = ""
+    try:
+        transfers = tx_data.get("transfers", [])
+        # Find the largest negative transfer — that's the payer (excluding node fees)
+        paying_transfer = min(
+            (t for t in transfers if t.get("amount", 0) < 0),
+            key=lambda t: t["amount"],
+            default=None,
+        )
+        if paying_transfer:
+            payer_account_id = paying_transfer.get("account", "")
+    except Exception:  # noqa: BLE001
+        pass
 
     # Advance the quote lifecycle — but only if it hasn't already been
     # advanced by POST /api/payment/verify.  That endpoint takes the quote
