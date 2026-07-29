@@ -27,3 +27,6 @@ data/
 # Misc
 .DS_Store
 *.log
+
+# Private — never commit
+PRIVATE_IMPLEMENTATION_PLAN.md

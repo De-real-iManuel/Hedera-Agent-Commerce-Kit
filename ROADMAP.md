@@ -1,114 +1,132 @@
 # Hedera Agent Commerce Kit — Roadmap
 
-This document outlines the long-term vision for HACK. The current submission is **Phase 1** — a complete, production-ready foundation. Each subsequent phase builds on it without requiring architectural rewrites.
+HACK is being built in four phases. The current submission is **Phase 1** — a complete, production-ready foundation that every subsequent phase builds on.
+
+The long-term vision: a **verifiable registry** where developers publish monetized MCP servers and APIs, and AI agents like Claude discover, pay for, and call them autonomously — with every transaction, receipt, and trust signal anchored on Hedera.
 
 ---
 
-## Phase 1 — Current Submission ✅
+## Phase 1 — Developer Toolkit ✅ Current Submission
 
-> **Scope:** A composable toolkit for developers who want to add pay-per-request monetization to any API, MCP server, or AI agent on Hedera.
+> Build the primitives. Make it trivial to monetize any API or MCP server on Hedera.
 
-### Core Infrastructure
-- [x] `@PaidEndpoint` decorator — one-line monetization for any FastAPI route
-- [x] x402 payment flow — standard HTTP 402 challenge / verify / grant lifecycle
-- [x] HBAR payments via Hedera Token Service
-- [x] Hedera Mirror Node verification — on-chain payment confirmation
-- [x] HCS immutable receipts — every payment anchored to a Hedera Consensus Service topic
+The core insight: AI agents need to transact with services the way HTTP requests work — lightweight, stateless, and standardized. x402 is that standard. HACK is the implementation.
 
-### Compliance & Certification
-- [x] Compliance audit engine — automated rule evaluation per payment
-- [x] AI-powered service certification — LLM-driven analysis of x402 compliance posture
-- [x] Soulbound NFT certificates — non-transferable proof of certification minted on HTS
+**What's built:**
 
-### Developer Experience
-- [x] WalletConnect integration — browser wallet support via HIP-820
-- [x] Enterprise-grade Next.js frontend with certification UI
-- [x] API Explorer — live interactive documentation with real payment flows
-- [x] Docker support — single-container backend deployment
-- [x] MCP server support — paid tool example for AI agent use cases
-- [x] Full documentation, `.env.example`, and deployment guides
+- `@PaidEndpoint` — one decorator monetizes any FastAPI route
+- x402 payment lifecycle — challenge, verify, grant, consume, expire
+- HBAR payments with Hedera Mirror Node verification (no third-party oracle)
+- HCS immutable receipts — every payment anchored to a Consensus Service topic
+- Compliance audit engine — static and LLM-assisted rule evaluation
+- AI-powered service certification — structured findings across payment, security, and architecture
+- Soulbound NFT certificates — on-chain proof of compliance audit completion
+- WalletConnect v2 — browser wallet support via HIP-820
+- Enterprise Next.js frontend — certification UI, API explorer, certificate gallery
+- Docker support — single-container deployment
+- MCP server support — paid tool integration pattern
+- Full documentation, environment templates, and deployment guides
+
+**On-chain proof:**
+Every component has been exercised on Hedera testnet. Real transactions, real HCS messages, real NFTs — not simulated.
 
 ---
 
 ## Phase 2 — Developer Platform
 
-> **Goal:** Turn HACK into the standard infrastructure layer for developers building and distributing monetized AI services on Hedera.
+> Make HACK the standard infrastructure for publishing monetized AI services.
 
-### Developer Portal
-- [ ] Self-service registration — publish an API or MCP server to the HACK registry
-- [ ] Service dashboard — view payment volume, active sessions, and endpoint performance
-- [ ] API key management — issue scoped access tokens for downstream consumers
-- [ ] Usage analytics — per-endpoint revenue, request counts, and latency histograms
-- [ ] Version management — publish, deprecate, and sunset service versions
+Phase 1 gives developers the tools. Phase 2 gives them the platform to distribute what they build — with the registry itself anchored on-chain so the history is tamper-proof and verifiable by anyone.
 
-### Distribution & Integration
-- [ ] SDK distribution — `hack-client` (Python/TypeScript) and `hack-server` packages on npm/PyPI
-- [ ] MCP publishing — one-command publish of a paid MCP server to the HACK registry
-- [ ] Webhook notifications — real-time payment events delivered to developer endpoints
-- [ ] OpenAPI spec export — auto-generate x402-annotated specs from registered services
+**Service Registry**
+- Self-service publishing — developers register MCP servers and APIs against the HACK registry
+- HCS-anchored registration events — every listing, update, and deprecation is an on-chain record
+- Compliance-gated listing — services must pass the audit engine before receiving a verified badge
+- Version management — publish, deprecate, and sunset service versions with on-chain history
 
-### Collaboration
-- [ ] Team workspaces — shared service management across organizations
-- [ ] Role-based access — owner, admin, read-only roles per workspace
-- [ ] Enterprise dashboards — aggregate billing and usage across a portfolio of services
-- [ ] Audit logs — immutable record of all configuration changes and key actions
+**Developer Experience**
+- Developer dashboard — payment volume, active sessions, endpoint performance
+- Usage analytics — per-endpoint revenue, request counts, and latency histograms
+- Webhook notifications — real-time payment lifecycle events
+- SDK distribution — `hack-client` and `hack-server` packages on npm and PyPI
+
+**Trust Infrastructure**
+- On-chain compliance scores — audit results published to HCS, not stored in a mutable database
+- Verified badge — services that pass the compliance engine get a certification that's independently verifiable
+- Audit history — every compliance run is anchored on-chain; scores can't be retroactively altered
 
 ---
 
-## Phase 3 — Agent Marketplace
+## Phase 3 — Agent-Accessible Registry
 
-> **Goal:** An open, on-chain marketplace where AI agents autonomously discover, evaluate, purchase, and call services — without human intervention.
+> The registry becomes the infrastructure layer for the agent economy.
 
-### Service Discovery
-- [ ] Public registry — searchable index of all published APIs, MCP servers, and agents
-- [ ] Discovery API — machine-readable endpoint for agents to query capabilities and pricing
-- [ ] Capability categories — structured taxonomy (data, compute, inference, storage, etc.)
-- [ ] Full-text and semantic search — agents find services by natural language description
+This is where the vision becomes a platform. Phase 3 is not about building agents — it is about building the registry that agents like Claude, GPT, and custom LangChain agents plug into. One integration with the HACK registry gives any agent access to the full ecosystem of verified, monetized services.
 
-### Trust & Reputation
-- [ ] Trust scores — composite on-chain reputation derived from payment history and audits
-- [ ] Reputation system — verifiable track record of uptime, latency, and compliance grades
-- [ ] Service verification — HACK-certified badge for services that pass the compliance engine
-- [ ] Community ratings — developer and agent feedback anchored to HCS for tamper resistance
+**Discovery**
+- Public registry API — machine-readable index of all listed services, capabilities, and pricing
+- Discovery MCP server — a single MCP connection gives any agent access to the entire registry
+- Structured capability taxonomy — services declare what they do in a standardized schema agents can query
+- Semantic search — natural language service discovery across the registry
 
-### Autonomous Agent Workflows
-- [ ] Agent-native pricing — services declare pricing in a machine-readable format
-- [ ] Autonomous payment — agents read a 402 challenge, pay via HBAR, and continue — zero human steps
-- [ ] Receipt verification — agents confirm payment on Mirror Node before consuming a response
-- [ ] Workflow continuity — agents chain multiple paid service calls within a single task context
+**Agent Integration**
+- Native x402 support — agents read a 402 challenge, pay with HBAR, and continue without human steps
+- Session-based spending — users authorize a spending limit once; agents operate within it autonomously
+- Receipt verification — agents confirm payment on Mirror Node before consuming a response
+- Workflow continuity — agents chain multiple paid service calls within a single task context
 
-### Enterprise Search
-- [ ] Filtered discovery — search by price ceiling, certification grade, network (testnet/mainnet)
-- [ ] SLA declarations — services publish uptime commitments queryable by agents and operators
+**Trust and Reputation**
+- On-chain trust scores — composite reputation derived from compliance grades, payment history, and uptime
+- Community ratings — developer and agent feedback anchored to HCS
+- Service verification — HACK-certified badge visible in agent tool selection
+- Transparent history — every trust signal is derivable from public HCS data; the registry can't manipulate scores
+
+**For Developers**
+- Network effects — listing a service in the HACK registry makes it accessible to every agent that connects to the discovery MCP server
+- Monetization from day one — services earn HBAR for every agent call, settled on-chain with no intermediary
 
 ---
 
 ## Phase 4 — Enterprise Infrastructure
 
-> **Goal:** Production-grade deployment options for organizations running internal AI service networks at scale.
+> Production-grade deployment for organizations running internal agent service networks at scale.
 
-### Multi-Tenancy & Deployment
-- [ ] Multi-tenant deployments — isolated environments per organization on shared infrastructure
-- [ ] Private registries — internal service catalogs not exposed to the public marketplace
-- [ ] On-premises support — HACK stack deployable in air-gapped or regulated environments
+**Deployment**
+- Multi-tenant environments — isolated namespaces per organization on shared infrastructure
+- Private registries — internal service catalogs not exposed to the public marketplace
+- On-chain auditability preserved in private deployments via dedicated HCS topics
 
-### Compliance & Governance
-- [ ] Compliance reports — exportable audit trails for regulatory and internal review
-- [ ] Policy engines — configurable rules enforcing payment thresholds, allowed services, and geo restrictions
-- [ ] SLA monitoring — automated alerting when services breach declared availability targets
+**Governance**
+- Policy engines — configurable rules for payment thresholds, allowed service categories, and geographic restrictions
+- Compliance reports — exportable audit trails for regulatory and internal review, all derivable from on-chain data
+- Audit logs — immutable record of configuration changes and administrative actions
 
-### Operations
-- [ ] Billing dashboards — consolidated HBAR spend and revenue across an organization
-- [ ] Monitoring integrations — Prometheus/Grafana-compatible metrics for all HACK services
-- [ ] Organization management — hierarchical account structures with delegated administration
+**Operations**
+- Billing dashboards — consolidated HBAR spend and revenue across an organization
+- SLA monitoring — automated alerting when services breach declared availability targets
+- Organization management — hierarchical account structures with delegated administration
+
+---
+
+## Why This Belongs on Hedera
+
+Every phase of this roadmap is deeper because it runs on Hedera, not despite it.
+
+**The registry history can't be rewritten.** Registration events, compliance updates, and service deprecations are published to HCS. Anyone can replay the topic and verify the current state independently. A centralized registry can silently alter trust scores. HACK cannot.
+
+**Payment disputes don't exist.** Every transaction is on the Mirror Node. There is no "our records show" — there is only the chain. This removes an entire category of enterprise objection.
+
+**Trust is structural, not reputational.** A verified badge in HACK is backed by an on-chain certificate, an HCS-anchored audit report, and a compliance history. It is not a star rating on a platform the operator controls.
+
+**Hedera's fixed fees make agent economics predictable.** Agents need to know what a Hedera operation costs before they execute it. No gas estimation, no fee spikes. This is a prerequisite for autonomous agent workflows that chain multiple paid calls.
 
 ---
 
 ## Design Principles
 
-These principles apply across all phases and are non-negotiable as the platform grows:
+These are fixed across all phases:
 
-- **On-chain first** — every payment, receipt, and certificate is verifiable on Hedera without trusting HACK infrastructure
-- **Composable** — each component (middleware, verifier, compliance engine, NFT minter) is independently usable
-- **Agent-native** — the primary consumer of this platform is an autonomous AI agent, not a human
-- **Open by default** — the core toolkit remains open source; revenue comes from managed services and enterprise tiers
+- **On-chain first** — payments, receipts, compliance results, and registry events are verifiable on Hedera without trusting HACK infrastructure
+- **Registry as product, payment as mechanism** — the registry is what developers and agents use; x402 + HBAR is how it enforces trust and generates revenue
+- **Agent-native by design** — the primary consumer of this platform is an autonomous AI agent, not a human developer clicking through a UI
+- **Open core** — the toolkit that powers Phase 1 remains open source; the platform and managed registry are the business
