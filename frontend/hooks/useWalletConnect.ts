@@ -279,7 +279,7 @@ export function useWalletConnect(): UseWalletConnectReturn {
             .addHbarTransfer(AccountId.fromString(recipientAccountId), new Hbar(amount))
             .setTransactionMemo(memo)
             .setTransactionId(TransactionId.generate(AccountId.fromString(activeAccount)));
-          transactionList = transactionToBase64String(tx);
+          transactionList = transactionToBase64String(tx as any);
         }
 
         const result = await c.signAndExecuteTransaction({
