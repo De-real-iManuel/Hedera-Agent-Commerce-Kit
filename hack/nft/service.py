@@ -178,12 +178,6 @@ class NftMintingService:
             SupplyType, TokenCreateTransaction, TokenType,
         )
 
-        # Builder pattern — set_* methods (SDK >= 0.3)
-        # Soulbound configuration:
-        #   no admin_key → immutable after creation
-        #   no wipe_key  → issuer cannot arbitrarily revoke
-        #   supply_key   → only this backend can mint
-        #   freeze_key + freeze_default=True → non-transferable by default
         tx = (
             TokenCreateTransaction()
             .set_token_name(self._token_name)
@@ -195,7 +189,6 @@ class NftMintingService:
             .set_supply_type(SupplyType.INFINITE)
             .set_freeze_default(True)
         )
-        # execute() returns TransactionReceipt directly (wait_for_receipt=True by default)
         receipt = tx.execute(client)
         token_id = getattr(receipt, "token_id", None) or getattr(receipt, "tokenId", None)
         if token_id is None:
@@ -205,7 +198,27 @@ class NftMintingService:
         state = _read_state()
         state["nft_token_id"] = token_id_str
         _write_state(state)
+
+        # Unfreeze the treasury/operator account for its own token immediately
+        # after creation. freeze_default=True applies to ALL accounts including
+        # the treasury, so without this the treasury itself gets
+        # ACCOUNT_FROZEN_FOR_TOKEN when receiving NFT transfers.
+        self._unfreeze_account(client, token_id_str, str(operator_id_obj))
+
         return token_id_str
+
+    def _unfreeze_account(self, client, token_id_str: str, account_id_str: str) -> None:
+        """Unfreeze an account for this token. Silently ignores errors."""
+        try:
+            from hiero_sdk_python import AccountId, TokenId, TokenUnfreezeTransaction  # type: ignore
+            token_id = TokenId.from_string(token_id_str)
+            account_id = AccountId.from_string(account_id_str)
+            TokenUnfreezeTransaction() \
+                .set_token_id(token_id) \
+                .set_account_id(account_id) \
+                .execute(client)
+        except Exception:  # noqa: BLE001
+            pass  # Already unfrozen or token doesn't exist yet — safe to ignore
 
     def _submit_mint(self, client, token_id_str: str, metadata_list):
         from hiero_sdk_python import TokenId, TokenMintTransaction  # type: ignore
@@ -257,7 +270,6 @@ class NftMintingService:
             AccountId,
             NftId,
             TokenId,
-            TokenUnfreezeTransaction,
             TransferTransaction,
         )
 
@@ -265,41 +277,15 @@ class NftMintingService:
         recipient = AccountId.from_string(recipient_account_id)
         nft_id = NftId(token_id, serial)
 
-        import logging
-        _log = logging.getLogger("hack.nft")
+        # Unfreeze both the recipient AND the treasury/operator.
+        # freeze_default=True applies to ALL accounts, including the treasury.
+        # The operator needs to be unfrozen to receive NFT transfers back
+        # (e.g. if recipient == operator). We use the shared helper which
+        # silently ignores "already unfrozen" errors.
+        self._unfreeze_account(client, token_id_str, recipient_account_id)
+        self._unfreeze_account(client, token_id_str, self._operator_id)
 
-        # Step 1: Unfreeze recipient for this token (operator signs as freeze key).
-        # This is required because freeze_default=True on the collection.
-        # We check the receipt status so a silent failure doesn't cause the
-        # subsequent transfer to fail with ACCOUNT_FROZEN_FOR_TOKEN.
-        try:
-            unfreeze_tx = (
-                TokenUnfreezeTransaction()
-                .set_token_id(token_id)
-                .set_account_id(recipient)
-            )
-            unfreeze_receipt = unfreeze_tx.execute(client)
-            unfreeze_status = str(
-                getattr(unfreeze_receipt, "status", None)
-                or getattr(unfreeze_receipt, "receipt_status", None)
-                or "UNKNOWN"
-            )
-            _log.debug("TokenUnfreeze status for %s: %s", recipient_account_id, unfreeze_status)
-            # TOKEN_NOT_ASSOCIATED_TO_ACCOUNT here means the recipient hasn't
-            # associated the token yet — transfer will also fail, raise immediately
-            # so the outer caller leaves the NFT in treasury with a clear warning.
-            if "NOT_ASSOCIATED" in unfreeze_status.upper():
-                raise RuntimeError(
-                    f"Recipient {recipient_account_id} has not associated token "
-                    f"{token_id_str}. NFT will remain in treasury."
-                )
-        except Exception as unfreeze_exc:
-            # Re-raise so the outer try/except in mint() catches it cleanly.
-            raise RuntimeError(
-                f"TokenUnfreeze failed for {recipient_account_id}: {unfreeze_exc}"
-            ) from unfreeze_exc
-
-        # Step 2: Transfer the NFT (recipient is now unfrozen).
+        # Transfer the NFT from treasury to recipient.
         transfer_tx = (
             TransferTransaction()
             .add_nft_transfer(nft_id, operator_id_obj, recipient)
