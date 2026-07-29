@@ -128,8 +128,9 @@ class NftMintingService:
                 except Exception as transfer_exc:  # noqa: BLE001
                     import logging
                     logging.getLogger("hack.nft").warning(
-                        "NFT transfer to %s failed (NFT stays in treasury): %s",
-                        recipient_account_id, transfer_exc,
+                        "NFT transfer to %s failed (NFT stays in treasury — "
+                        "recipient may need to associate token %s first): %s",
+                        recipient_account_id, token_id_str, transfer_exc,
                     )
 
             return NftMintResult(
@@ -264,15 +265,41 @@ class NftMintingService:
         recipient = AccountId.from_string(recipient_account_id)
         nft_id = NftId(token_id, serial)
 
-        # Step 1: Unfreeze recipient for this token (operator signs as freeze key).
-        unfreeze_tx = (
-            TokenUnfreezeTransaction()
-            .set_token_id(token_id)
-            .set_account_id(recipient)
-        )
-        unfreeze_tx.execute(client)
+        import logging
+        _log = logging.getLogger("hack.nft")
 
-        # Step 2: Transfer the NFT.
+        # Step 1: Unfreeze recipient for this token (operator signs as freeze key).
+        # This is required because freeze_default=True on the collection.
+        # We check the receipt status so a silent failure doesn't cause the
+        # subsequent transfer to fail with ACCOUNT_FROZEN_FOR_TOKEN.
+        try:
+            unfreeze_tx = (
+                TokenUnfreezeTransaction()
+                .set_token_id(token_id)
+                .set_account_id(recipient)
+            )
+            unfreeze_receipt = unfreeze_tx.execute(client)
+            unfreeze_status = str(
+                getattr(unfreeze_receipt, "status", None)
+                or getattr(unfreeze_receipt, "receipt_status", None)
+                or "UNKNOWN"
+            )
+            _log.debug("TokenUnfreeze status for %s: %s", recipient_account_id, unfreeze_status)
+            # TOKEN_NOT_ASSOCIATED_TO_ACCOUNT here means the recipient hasn't
+            # associated the token yet — transfer will also fail, raise immediately
+            # so the outer caller leaves the NFT in treasury with a clear warning.
+            if "NOT_ASSOCIATED" in unfreeze_status.upper():
+                raise RuntimeError(
+                    f"Recipient {recipient_account_id} has not associated token "
+                    f"{token_id_str}. NFT will remain in treasury."
+                )
+        except Exception as unfreeze_exc:
+            # Re-raise so the outer try/except in mint() catches it cleanly.
+            raise RuntimeError(
+                f"TokenUnfreeze failed for {recipient_account_id}: {unfreeze_exc}"
+            ) from unfreeze_exc
+
+        # Step 2: Transfer the NFT (recipient is now unfrozen).
         transfer_tx = (
             TransferTransaction()
             .add_nft_transfer(nft_id, operator_id_obj, recipient)
