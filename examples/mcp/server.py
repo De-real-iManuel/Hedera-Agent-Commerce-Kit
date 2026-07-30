@@ -515,6 +515,73 @@ async def get_hcs_activity(
     return json.dumps({"hcs_activity": activity, "receipt": rec}, indent=2)
 
 
+@mcp.tool()
+async def export_account_csv(
+    account_id: str,
+    limit: int = 50,
+    transaction_id: str = "",
+    quote_id: str = "",
+) -> str:
+    """
+    Export a Hedera account's transaction history as a CSV statement.
+
+    Returns a CSV-formatted string with columns: Date, Type, Result,
+    Net HBAR, Direction, Counterparty, Transaction ID, HashScan URL.
+    Ready to save as a .csv file for accounting or record-keeping.
+    Costs 0.5 HBAR — provide transaction_id + quote_id after paying.
+    """
+    paid, challenge = await _gate("export_account_csv", transaction_id, quote_id)
+    if not paid:
+        return json.dumps(challenge, indent=2)
+
+    params: dict = {"account.id": account_id, "limit": min(limit, 100), "order": "desc"}
+    data = await _mirror_get("/api/v1/transactions", params)
+
+    import io, csv as _csv
+    output = io.StringIO()
+    writer = _csv.writer(output)
+    writer.writerow([
+        "Date (UTC)", "Type", "Result", "Net HBAR", "Direction",
+        "Counterparty", "Transaction ID", "HashScan URL"
+    ])
+
+    for tx in data.get("transactions", []):
+        transfers = tx.get("transfers", [])
+        net = sum(t.get("amount", 0) for t in transfers if t.get("account") == account_id)
+        net_hbar = round(net / 100_000_000, 8)
+        direction = "IN" if net > 0 else ("OUT" if net < 0 else "FEE")
+        counterparties = [
+            t.get("account") for t in transfers
+            if t.get("account") != account_id
+            and t.get("account") not in ("0.0.98", "0.0.800")
+            and abs(t.get("amount", 0)) > 0
+        ]
+        writer.writerow([
+            _ts_to_human(tx.get("consensus_timestamp", "")),
+            tx.get("name", ""),
+            tx.get("result", ""),
+            net_hbar,
+            direction,
+            "; ".join(counterparties[:2]) if counterparties else "",
+            tx.get("transaction_id", ""),
+            f"{HASHSCAN_BASE}/transaction/{tx.get('transaction_id', '')}",
+        ])
+
+    csv_content = output.getvalue()
+    rec = await _receipt("export_account_csv", transaction_id, quote_id)
+
+    return json.dumps({
+        "format": "csv",
+        "account_id": account_id,
+        "network": NETWORK,
+        "rows": len(data.get("transactions", [])),
+        "filename": f"hedera-statement-{account_id}-{int(time.time())}.csv",
+        "csv": csv_content,
+        "receipt": rec,
+        "_note": "Copy the 'csv' field content and save as a .csv file.",
+    }, indent=2)
+
+
 # ── Entry point ──────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -531,7 +598,7 @@ def main() -> None:
     print(f"  Receiver  : {_settings.x402_payment_receiver_account_id}")
     print(f"  Price     : {_settings.x402_payment_amount_hbar} HBAR/call")
     print(f"  Tools     : get_account_statement, get_transaction_history,")
-    print(f"              get_token_portfolio, get_hcs_activity\n")
+    print(f"              get_token_portfolio, get_hcs_activity, export_account_csv\n")
 
     if args.transport == "stdio":
         mcp.run(transport="stdio")
