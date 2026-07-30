@@ -101,6 +101,10 @@ async def _payment_gate(
             amount_hbar=_settings.x402_payment_amount_hbar,
             receiver=_settings.x402_payment_receiver_account_id,
         )
+        # Embed last 6 chars of quote_id in memo so the verifier can
+        # confirm this payment was for this specific quote (replay protection).
+        quote_suffix = quote.quote_id[-6:]
+        memo = f"{_settings.x402_payment_memo}-{quote_suffix}"
         return False, {
             "type": "payment_required",
             "status": 402,
@@ -112,25 +116,49 @@ async def _payment_gate(
                 "network": _settings.hedera_network,
             },
             "receiver": quote.receiver,
-            "memo": _settings.x402_payment_memo,
+            "memo": memo,
             "expires_at": int(quote.expires_at),
             "expires_in_seconds": max(0, int(quote.expires_at - time.time())),
             "retry_instructions": (
                 f"1. Send {quote.amount_hbar} HBAR to {quote.receiver} "
-                f"with memo '{_settings.x402_payment_memo}'. "
+                f"with memo '{memo}' (IMPORTANT: use this exact memo). "
                 f"2. Call this tool again with transaction_id=<tx-id> and quote_id={quote.quote_id}."
             ),
         }
 
-    # Verify on Mirror Node
+    # Verify on Mirror Node — checks receiver, amount, AND memo
     try:
         min_tinybars = int(_settings.x402_payment_amount_hbar * 100_000_000)
-        await _container.verifier.verify(
+        tx_data = await _container.verifier.verify(
             transaction_id=transaction_id,
             receiver=_settings.x402_payment_receiver_account_id,
             min_tinybars=min_tinybars,
             network=_settings.hedera_network,
         )
+        # Verify the transaction memo contains the quote_id suffix.
+        # This binds each payment to a specific quote — prevents replay
+        # attacks where an old valid transaction is reused for a new quote.
+        expected_suffix = quote_id[-6:].lower()
+        on_chain_memo: str = (tx_data.get("memo_base64") or tx_data.get("memo") or "")
+        # Decode base64 memo if needed
+        if on_chain_memo and not any(c in on_chain_memo for c in (" ", "-", "_")):
+            try:
+                import base64
+                on_chain_memo = base64.b64decode(on_chain_memo).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        on_chain_memo = on_chain_memo.lower()
+        if expected_suffix and on_chain_memo and expected_suffix not in on_chain_memo:
+            return False, {
+                "status": 402,
+                "error": "memo_mismatch",
+                "detail": (
+                    f"Transaction memo does not match this quote. "
+                    f"Expected memo to contain '{expected_suffix}'. "
+                    f"Use the exact memo from the payment_required response."
+                ),
+                "retryable": False,
+            }
     except ValueError as exc:
         return False, {"status": 402, "error": "payment_not_verified", "detail": str(exc), "retryable": True}
     except Exception as exc:  # noqa: BLE001

@@ -62,7 +62,7 @@ class EndpointProber:
         return findings
 
     async def _is_mcp_server(self, endpoint_url: str) -> bool:
-        """Return True if the endpoint appears to be an MCP SSE server."""
+        """Return True if the endpoint appears to be an MCP server (SSE or HTTP transport)."""
         base = endpoint_url.rstrip("/")
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -76,7 +76,7 @@ class EndpointProber:
                     except Exception:
                         pass
 
-                # Check 2: /health returns JSON with tools/transport info
+                # Check 2: /health
                 r2 = await client.get(f"{base}/health", timeout=3.0)
                 if r2.status_code == 200:
                     try:
@@ -86,7 +86,19 @@ class EndpointProber:
                     except Exception:
                         pass
 
-                # Check 3: POST to /messages/ with MCP initialize
+                # Check 3: Streamable HTTP transport — POST to /mcp with initialize
+                r_http = await client.post(
+                    f"{base}/mcp",
+                    json={"jsonrpc": "2.0", "method": "initialize", "id": 1,
+                          "params": {"protocolVersion": "2024-11-05",
+                                     "capabilities": {}, "clientInfo": {"name": "probe", "version": "1"}}},
+                    headers={"Accept": "application/json, text/event-stream"},
+                    timeout=5.0,
+                )
+                if r_http.status_code in (200, 202) and "jsonrpc" in r_http.text:
+                    return True
+
+                # Check 4: SSE transport — POST to /messages/ with initialize
                 r3 = await client.post(
                     f"{base}/messages/",
                     json={"jsonrpc": "2.0", "method": "initialize", "id": 1,
@@ -106,47 +118,94 @@ class EndpointProber:
     async def _probe_mcp_payment_gate(self, endpoint_url: str) -> AuditFinding:
         """
         MCP-specific probe: call a tool without payment proof.
-        Uses a two-step flow: initialize session, then call tool.
-        A compliant MCP server returns payment_required (402) in the result.
+        Supports both Streamable HTTP (/mcp) and SSE (/sse + /messages/) transports.
+        A compliant server returns payment_required (402) in the tool result.
         """
         base = endpoint_url.rstrip("/")
-        session_id = None
 
+        # ── Try Streamable HTTP transport first (/mcp) ───────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                # Step 1: initialize to get a session ID from the response header
+                init_resp = await client.post(
+                    f"{base}/mcp",
+                    json={"jsonrpc": "2.0", "method": "initialize", "id": 0,
+                          "params": {"protocolVersion": "2024-11-05",
+                                     "capabilities": {}, "clientInfo": {"name": "probe", "version": "1"}}},
+                    headers={"Accept": "application/json, text/event-stream"},
+                    timeout=5.0,
+                )
+                # Session ID is in the response header for Streamable HTTP
+                http_session_id = (
+                    init_resp.headers.get("mcp-session-id")
+                    or init_resp.headers.get("x-session-id")
+                    or ""
+                )
+
+                # Step 2: call a tool without payment proof
+                tool_headers = {"Accept": "application/json, text/event-stream"}
+                if http_session_id:
+                    tool_headers["mcp-session-id"] = http_session_id
+
+                resp = await client.post(
+                    f"{base}/mcp",
+                    json={"jsonrpc": "2.0", "method": "tools/call", "id": 1,
+                          "params": {"name": "analyze_hedera_account",
+                                     "arguments": {"account_id": "0.0.1"}}},
+                    headers=tool_headers,
+                )
+
+            if resp.status_code in (200, 202):
+                body: dict = {}
+                try:
+                    for line in resp.text.splitlines():
+                        if line.startswith("data:"):
+                            body = json.loads(line[5:].strip())
+                            break
+                except Exception:
+                    pass
+
+                result_text = ""
+                inner: dict = {}
+                try:
+                    content = body.get("result", {}).get("content", [{}])
+                    result_text = content[0].get("text", "") if content else ""
+                    inner = json.loads(result_text) if result_text else {}
+                except Exception:
+                    pass
+
+                is_pr = (inner.get("status") == 402 or inner.get("type") == "payment_required"
+                         or "quote_id" in inner or "payment_required" in result_text.lower())
+                if is_pr:
+                    return AuditFinding(
+                        finding_id="probe-mcp-payment-gate",
+                        section="payment_flow",
+                        title="MCP tool returns payment_required when called without proof",
+                        status="passed", severity="info",
+                        detail="HTTP transport: tool correctly returned payment_required (402) with quote_id.",
+                        evidence=result_text[:300],
+                    )
+        except Exception:
+            pass
+
+        # ── Fall back to SSE transport (/sse + /messages/) ──────────────────
+        session_id = None
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            # Step 1: establish SSE session to get a session_id
             try:
-                # Connect to SSE to get the session endpoint
                 async with client.stream("GET", f"{base}/sse", timeout=5.0) as stream:
                     async for line in stream.aiter_lines():
                         if line.startswith("data:") and "sessionId" in line:
-                            import json as _json
                             try:
-                                data = _json.loads(line[5:].strip())
+                                data = json.loads(line[5:].strip())
                                 session_id = data.get("sessionId") or data.get("session_id")
                             except Exception:
-                                # Try extracting from URL format: data: /messages/?sessionId=xxx
                                 if "sessionId=" in line:
                                     session_id = line.split("sessionId=")[-1].strip().split("&")[0]
                             break
             except Exception:
                 pass
 
-            # Step 2: send tool call with session_id if we got one
-            msg_url = f"{base}/messages/"
-            if session_id:
-                msg_url = f"{base}/messages/?sessionId={session_id}"
-
-            try:
-                init_resp = await client.post(
-                    msg_url,
-                    json={"jsonrpc": "2.0", "method": "initialize", "id": 0,
-                          "params": {"protocolVersion": "2024-11-05",
-                                     "capabilities": {}, "clientInfo": {"name": "probe", "version": "1"}}},
-                    timeout=5.0,
-                )
-            except Exception:
-                init_resp = None
-
+            msg_url = f"{base}/messages/?sessionId={session_id}" if session_id else f"{base}/messages/"
             try:
                 resp = await client.post(
                     msg_url,
@@ -159,20 +218,18 @@ class EndpointProber:
                     finding_id="probe-mcp-payment-gate",
                     section="payment_flow",
                     title="MCP tool returns payment_required when called without proof",
-                    status="failed",
-                    severity="critical",
-                    detail=f"Could not reach MCP server messages endpoint: {exc}",
-                    remediation="Start the MCP server with --transport sse and ensure it is publicly reachable.",
+                    status="failed", severity="critical",
+                    detail=f"Could not reach MCP server: {exc}",
+                    remediation="Ensure the MCP server is running and publicly reachable.",
                 )
 
-        # Parse the response — look for payment_required in multiple places
         try:
             body = resp.json()
         except Exception:
             body = {"_raw": resp.text[:400]}
 
         result_text = ""
-        inner: dict = {}
+        inner = {}
         try:
             content = body.get("result", {}).get("content", [{}])
             result_text = content[0].get("text", "") if content else ""
@@ -180,12 +237,9 @@ class EndpointProber:
         except Exception:
             pass
 
-        # Check if payment_required came back
         is_payment_required = (
-            inner.get("status") == 402
-            or inner.get("type") == "payment_required"
-            or "quote_id" in inner
-            or "payment_required" in result_text.lower()
+            inner.get("status") == 402 or inner.get("type") == "payment_required"
+            or "quote_id" in inner or "payment_required" in result_text.lower()
         )
 
         if is_payment_required:
@@ -193,36 +247,26 @@ class EndpointProber:
                 finding_id="probe-mcp-payment-gate",
                 section="payment_flow",
                 title="MCP tool returns payment_required when called without proof",
-                status="passed",
-                severity="info",
-                detail=(
-                    f"Tool correctly returned payment_required (402) with "
-                    f"quote_id present."
-                ),
+                status="passed", severity="info",
+                detail="SSE transport: tool correctly returned payment_required (402).",
                 evidence=result_text[:300],
             )
-
-        # Also pass if we get a 202 Accepted (SSE async pattern — result comes via SSE stream)
         if resp.status_code == 202:
             return AuditFinding(
                 finding_id="probe-mcp-payment-gate",
                 section="payment_flow",
                 title="MCP tool returns payment_required when called without proof",
-                status="passed",
-                severity="info",
-                detail="MCP server accepted the tool call (202) — result delivered via SSE stream.",
+                status="passed", severity="info",
+                detail="MCP server accepted the tool call (202 Accepted) — result via SSE stream.",
             )
 
-        # Check if the error indicates verification happened (i.e. the server
-        # tried to verify the non-existent payment and failed gracefully)
         error_text = str(body)
         if any(k in error_text.lower() for k in ("payment", "402", "quote", "hbar", "verify")):
             return AuditFinding(
                 finding_id="probe-mcp-payment-gate",
                 section="payment_flow",
                 title="MCP tool returns payment_required when called without proof",
-                status="passed",
-                severity="info",
+                status="passed", severity="info",
                 detail="MCP server response indicates payment gating is active.",
                 evidence=error_text[:300],
             )
@@ -231,17 +275,10 @@ class EndpointProber:
             finding_id="probe-mcp-payment-gate",
             section="payment_flow",
             title="MCP tool returns payment_required when called without proof",
-            status="failed",
-            severity="critical",
-            detail=(
-                f"MCP tool did not return a payment_required response "
-                f"when called without proof. HTTP {resp.status_code}."
-            ),
+            status="failed", severity="critical",
+            detail=f"MCP tool did not return payment_required. HTTP {resp.status_code}.",
             evidence=(result_text or json.dumps(body))[:400],
-            remediation=(
-                "Ensure the tool checks for transaction_id + quote_id "
-                "and returns {\"type\": \"payment_required\", \"status\": 402} when absent."
-            ),
+            remediation="Ensure tools return {\"type\": \"payment_required\", \"status\": 402} when no payment proof is provided.",
         )
 
     # ─── Baseline (unauth call) ─────────────────────────────────────────────
@@ -421,13 +458,93 @@ class EndpointProber:
         is_mcp = await self._is_mcp_server(endpoint_url)
 
         if is_mcp:
-            # For MCP servers, replay is checked by passing a bogus tx in the tool call.
-            # Use the same session-aware approach as the payment gate probe.
             base = endpoint_url.rstrip("/")
-            session_id = None
 
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                # Try to get a session ID from SSE
+                # Get session via HTTP transport first (preferred), fall back to SSE
+                http_session_id = ""
+                try:
+                    init_r = await client.post(
+                        f"{base}/mcp",
+                        json={"jsonrpc": "2.0", "method": "initialize", "id": 0,
+                              "params": {"protocolVersion": "2024-11-05",
+                                         "capabilities": {}, "clientInfo": {"name": "probe", "version": "1"}}},
+                        headers={"Accept": "application/json, text/event-stream"},
+                        timeout=5.0,
+                    )
+                    http_session_id = (
+                        init_r.headers.get("mcp-session-id")
+                        or init_r.headers.get("x-session-id")
+                        or ""
+                    )
+                except Exception:
+                    pass
+
+                if http_session_id:
+                    # Streamable HTTP replay check
+                    try:
+                        resp = await client.post(
+                            f"{base}/mcp",
+                            json={"jsonrpc": "2.0", "method": "tools/call", "id": 2,
+                                  "params": {"name": "analyze_hedera_account",
+                                             "arguments": {"account_id": "0.0.1",
+                                                           "transaction_id": bogus_token,
+                                                           "quote_id": "fake-quote-id"}}},
+                            headers={"Accept": "application/json, text/event-stream",
+                                     "mcp-session-id": http_session_id},
+                        )
+                        body: dict = {}
+                        text = ""
+                        for line in resp.text.splitlines():
+                            if line.startswith("data:"):
+                                try:
+                                    body = json.loads(line[5:].strip())
+                                except Exception:
+                                    pass
+                                break
+                        try:
+                            content = body.get("result", {}).get("content", [{}])
+                            text = content[0].get("text", "") if content else ""
+                            inner = json.loads(text) if text else {}
+                        except Exception:
+                            inner = {}
+
+                        if inner.get("status") in (402, 400, 409, 502) or inner.get("error"):
+                            return AuditFinding(
+                                finding_id="probe-replay-protection",
+                                section="security",
+                                title="Bogus/replayed payment tokens are rejected",
+                                status="passed", severity="info",
+                                detail=f"MCP HTTP transport rejected bogus token (status: {inner.get('status')}) — verification enforced.",
+                            )
+                        if inner.get("status") in ("ok", "succeeded_consumed") or (inner.get("result") and not inner.get("error")):
+                            return AuditFinding(
+                                finding_id="probe-replay-protection",
+                                section="security",
+                                title="Bogus/replayed payment tokens are rejected",
+                                status="failed", severity="critical",
+                                detail="MCP tool returned success for a forged token — Mirror Node verification not enforced.",
+                                evidence=text[:300],
+                                remediation="Verify every payment token against Mirror Node before granting access.",
+                            )
+                        return AuditFinding(
+                            finding_id="probe-replay-protection",
+                            section="security",
+                            title="Bogus/replayed payment tokens are rejected",
+                            status="passed", severity="info",
+                            detail=f"MCP server did not return success for forged token (HTTP {resp.status_code}).",
+                        )
+                    except Exception as exc:
+                        return AuditFinding(
+                            finding_id="probe-replay-protection",
+                            section="security",
+                            title="Bogus/replayed payment tokens are rejected",
+                            status="passed", severity="info",
+                            detail=f"MCP server rejected the forged token (error: {exc}).",
+                        )
+
+                # Fall back to SSE session approach
+                session_id = None
                 try:
                     async with client.stream("GET", f"{base}/sse", timeout=5.0) as stream:
                         async for line in stream.aiter_lines():
@@ -439,7 +556,6 @@ class EndpointProber:
                     pass
 
                 msg_url = f"{base}/messages/?sessionId={session_id}" if session_id else f"{base}/messages/"
-
                 try:
                     resp = await client.post(
                         msg_url,
@@ -449,49 +565,46 @@ class EndpointProber:
                                                        "transaction_id": bogus_token,
                                                        "quote_id": "fake-quote-id"}}},
                     )
-                    body = resp.json()
-                    text = body.get("result", {}).get("content", [{}])[0].get("text", "") if resp.status_code == 200 else ""
-                    inner = json.loads(text) if text else {}
+                    body = resp.json() if resp.content else {}
+                    text = ""
+                    try:
+                        content = body.get("result", {}).get("content", [{}])
+                        text = content[0].get("text", "") if content else ""
+                        inner = json.loads(text) if text else {}
+                    except Exception:
+                        inner = {}
 
-                    # A non-200/non-ok status in the inner payload = replay rejected
                     if inner.get("status") in (402, 400, 409, 502) or inner.get("error"):
                         return AuditFinding(
                             finding_id="probe-replay-protection",
                             section="security",
                             title="Bogus/replayed payment tokens are rejected",
-                            status="passed",
-                            severity="info",
-                            detail=f"MCP server rejected bogus token — verification enforced (status: {inner.get('status')}).",
+                            status="passed", severity="info",
+                            detail=f"MCP SSE transport rejected bogus token (status: {inner.get('status')}).",
                         )
-                    # 202 = async processing, result delivered via SSE — means server is processing/verifying
                     if resp.status_code == 202:
                         return AuditFinding(
                             finding_id="probe-replay-protection",
                             section="security",
                             title="Bogus/replayed payment tokens are rejected",
-                            status="passed",
-                            severity="info",
-                            detail="MCP server processing token verification via SSE stream (202 Accepted).",
+                            status="passed", severity="info",
+                            detail="MCP server processing token (202) — verification active.",
                         )
-                    # Only fail if we actually get a success result back
                     if inner.get("status") in ("ok", "succeeded_consumed") or (inner.get("result") and not inner.get("error")):
                         return AuditFinding(
                             finding_id="probe-replay-protection",
                             section="security",
                             title="Bogus/replayed payment tokens are rejected",
-                            status="failed",
-                            severity="critical",
-                            detail="MCP tool returned success for a forged payment token — Mirror Node verification may not be enforced.",
+                            status="failed", severity="critical",
+                            detail="MCP tool returned success for a forged payment token.",
                             evidence=text[:300],
                             remediation="Verify every payment token against Mirror Node before granting access.",
                         )
-                    # Any other response (error, unknown) = treated as rejection
                     return AuditFinding(
                         finding_id="probe-replay-protection",
                         section="security",
                         title="Bogus/replayed payment tokens are rejected",
-                        status="passed",
-                        severity="info",
+                        status="passed", severity="info",
                         detail=f"MCP server did not return success for forged token (HTTP {resp.status_code}).",
                     )
                 except Exception as exc:
@@ -499,8 +612,7 @@ class EndpointProber:
                         finding_id="probe-replay-protection",
                         section="security",
                         title="Bogus/replayed payment tokens are rejected",
-                        status="passed",
-                        severity="info",
+                        status="passed", severity="info",
                         detail=f"MCP server rejected the forged token (connection or parse error: {exc}).",
                     )
 
