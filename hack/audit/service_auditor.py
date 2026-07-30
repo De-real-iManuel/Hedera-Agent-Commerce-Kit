@@ -147,7 +147,9 @@ class ServiceAuditor:
             # 4. Compute scores
             report.overall_score = self._compute_overall(report.sections)
             report.grade = _grade(report.overall_score)
-            report.passed = report.overall_score >= 70
+            # CERTIFIED: ≥80, CONDITIONAL: ≥60, FAILED: <60
+            # Matches the audit.py threshold that controls NFT issuance
+            report.passed = report.overall_score >= 60
 
             # 5. LLM summary + recommendations
             summary, recs = await self._llm.analyse(
