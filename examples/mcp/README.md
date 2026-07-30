@@ -1,86 +1,71 @@
-# HACK Hedera MCP Server
+# HACK Hedera Bank Statement — Paid MCP Server
 
-A production-quality MCP server where every tool is pay-per-call using Hedera x402 payments. Built on the `hack` SDK — Mirror Node verification, six-state lifecycle, and HCS immutable receipts included.
+A production-quality MCP server that generates comprehensive **Hedera account statements** using the Mirror Node REST API. Every tool call is pay-per-use via the x402 payment standard on Hedera.
 
----
+## What it does
+
+Connect this server to ChatGPT, Claude, or any MCP-compatible agent and ask it to analyze any Hedera account. The agent receives a payment challenge, you pay 0.5 HBAR, and the server returns live on-chain data verified through the Hedera Mirror Node.
 
 ## Tools
 
-| Tool | What it does | Cost |
-|------|-------------|------|
-| `analyze_hedera_account` | Fetch live balance, memo, key, and recent transactions for any Hedera account | 0.5 HBAR |
-| `query_hcs_topic` | Fetch and decode recent messages from any HCS topic | 0.5 HBAR |
-| `generate_compliance_report` | Run HACK compliance rules against a payment transaction; anchors result to HCS | 0.5 HBAR |
+| Tool | Description |
+|------|-------------|
+| `get_account_statement` | Full account overview: HBAR balance, token count, recent transactions, account metadata |
+| `get_transaction_history` | Paginated HBAR and token transfer history with amounts, counterparties, and HashScan links |
+| `get_token_portfolio` | All HTS tokens held — fungible tokens and NFTs with metadata |
+| `get_hcs_activity` | HCS topics submitted to by the account, message counts, and recent submissions |
 
----
+## Payment flow
 
-## Payment Flow
-
-Every tool follows the same three-step pattern:
+Every tool call goes through the x402 protocol:
 
 ```
-1. Call tool (no payment)
-   → Returns payment_required (402) with quote_id, receiver, amount, expiry
+1. Call any tool without proof
+   → Receive { type: "payment_required", status: 402, quote_id, receiver, memo }
 
-2. Send HBAR to receiver using any Hedera wallet
-   (HashPack, Kabila, or programmatic transfer)
+2. Send 0.5 HBAR to `receiver` with the exact `memo` (contains quote_id suffix)
+   → Use HashPack, Kabila, or any Hedera wallet
 
-3. Call same tool again with transaction_id + quote_id
-   → Mirror Node verified → HCS receipt published → result returned
+3. Call the tool again with transaction_id + quote_id
+   → Mirror Node verifies payment on-chain
+   → Result returned + HCS receipt published
 ```
 
-The server uses the HACK `QuoteLifecycleService` state machine:
-`QUOTED → VERIFIED → GRANTED → CONSUMED`
-
-Each payment grants exactly one tool call. Replay is rejected at the transaction ID level.
-
----
-
-## Setup
-
-**Prerequisites:** Python 3.10+, a configured `.env` at the project root.
-
-```bash
-# From the project root
-pip install mcp
-
-# Verify your .env has these set:
-# HEDERA_OPERATOR_ID, HEDERA_OPERATOR_KEY
-# X402_PAYMENT_RECEIVER_ACCOUNT_ID
-# HCS_RECEIPT_TOPIC_ID
-# GROQ_API_KEY (or OPENAI_API_KEY)
-```
-
----
+The memo includes the last 6 characters of the `quote_id` (e.g. `hack-payment-f4a91c`). This binds each payment to a specific quote — replaying an old transaction against a new quote will be rejected.
 
 ## Running
 
-### stdio (Claude Desktop, Continue, etc.)
-
 ```bash
+# Install dependencies
+pip install mcp uvicorn httpx
+
+# Stdio transport (Claude Desktop, Continue)
 python examples/mcp/server.py
-```
 
-### SSE (remote agents, HTTP clients)
-
-```bash
+# SSE transport (Claude Desktop remote)
 python examples/mcp/server.py --transport sse --port 9000
-# Server available at http://localhost:9000
+
+# Streamable HTTP transport (ChatGPT)
+python examples/mcp/server.py --transport http --port 9000
 ```
 
----
+## Connecting to ChatGPT
 
-## Claude Desktop Configuration
+1. Start the server: `python examples/mcp/server.py --transport http --port 9000`
+2. Expose via ngrok: `ngrok http 9000`
+3. In ChatGPT → Settings → Connectors → Add MCP Server
+4. URL: `https://<your-ngrok-domain>/mcp`
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
-(macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+## Connecting to Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "hack-hedera": {
       "command": "python",
-      "args": ["C:/path/to/Hedera-Agent-Commerce-Kit/examples/mcp/server.py"],
+      "args": ["/path/to/examples/mcp/server.py"],
       "env": {
         "HEDERA_OPERATOR_ID": "0.0.XXXXXX",
         "HEDERA_OPERATOR_KEY": "302e...",
@@ -93,107 +78,28 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`
 }
 ```
 
----
+## Demo questions for ChatGPT
 
-## Manual Test (no wallet required)
+```
+"Generate a full bank statement for Hedera account 0.0.7942957"
 
-```bash
-python examples/mcp/test_client.py
+"Show me the transaction history for 0.0.9075201 — I want to see 
+the last 20 transactions"
+
+"What tokens does account 0.0.7942957 hold? Include NFTs."
+
+"Show me the HCS activity for account 0.0.7942957 — what topics 
+has this account submitted messages to?"
 ```
 
-This script:
-1. Calls `analyze_hedera_account` without payment — verifies a 402 response
-2. Calls `query_hcs_topic` without payment — verifies a 402 response
-3. Prints the quote_id and payment instructions for a real test
+## Environment variables
 
----
-
-## Pasting Into the HACK Compliance Portal
-
-To audit this MCP server through the HACK portal at `http://localhost:3000/certification`:
-
-1. Open the portal and click **Analyze Service**
-2. Set Service Type to **MCP Server**
-3. Set Endpoint URL to `http://localhost:9000` (SSE transport) or your deployed URL
-4. Paste the contents of `server.py` into the **Source Code** textarea
-5. Leave GitHub URL blank
-6. Submit and pay — the compliance engine runs static rules against your pasted code
-
-The static rules check for: x402 middleware references, HCS receipt publishing,
-Mirror Node verification calls, replay protection, error handling, and hardcoded secrets.
-
----
-
-## Response Shapes
-
-### Payment required (no proof provided)
-
-```json
-{
-  "type": "payment_required",
-  "status": 402,
-  "tool": "analyze_hedera_account",
-  "quote_id": "3f8a1c2d-...",
-  "resource": "mcp.analyze_hedera_account",
-  "resource_hash": "a3f9...",
-  "price": { "amount": "0.5", "asset": "HBAR", "network": "testnet" },
-  "receiver": "0.0.7972536",
-  "memo": "hack-payment",
-  "expires_at": 1784949817,
-  "expires_in_seconds": 598,
-  "retry_instructions": "1. Send 0.5 HBAR to 0.0.7972536 with memo 'hack-payment'. 2. Call this tool again with transaction_id and quote_id."
-}
-```
-
-### Successful result
-
-```json
-{
-  "status": "ok",
-  "tool": "analyze_hedera_account",
-  "result": { ... },
-  "payment": {
-    "transaction_id": "0.0.9075201@1784939817.181941398",
-    "quote_id": "3f8a1c2d-...",
-    "amount_hbar": 0.5,
-    "consumed": true
-  },
-  "receipt": {
-    "hcs_status": "published",
-    "hcs_error": null,
-    "hashscan_url": "https://hashscan.io/testnet/transaction/0.0.9075201@1784939817.181941398"
-  }
-}
-```
-
----
-
-## Adding Your Own Paid Tool
-
-```python
-# 1. Add a Tool entry to the TOOLS list
-Tool(
-    name="my_tool",
-    description="...",
-    inputSchema={
-        "type": "object",
-        "properties": {
-            "my_param": {"type": "string"},
-            "transaction_id": {"type": "string"},  # always required for payment
-            "quote_id": {"type": "string"},
-        },
-        "required": ["my_param"],
-    },
-),
-
-# 2. Add a branch to _dispatch()
-if name == "my_tool":
-    return await _my_tool(args["my_param"])
-
-# 3. Implement the function
-async def _my_tool(param: str) -> dict:
-    return {"result": f"processed {param}"}
-```
-
-The payment gate, Mirror Node verification, state machine, HCS receipt, and metering
-are all handled by the `call_tool` handler — you only write the business logic.
+| Variable | Description |
+|----------|-------------|
+| `HEDERA_OPERATOR_ID` | Account that signs HCS receipts |
+| `HEDERA_OPERATOR_KEY` | Private key for the operator account |
+| `HEDERA_NETWORK` | `testnet` (default) or `mainnet` |
+| `X402_PAYMENT_RECEIVER_ACCOUNT_ID` | Account that receives HBAR payments |
+| `X402_PAYMENT_AMOUNT_HBAR` | Price per call (default: `0.5`) |
+| `HCS_RECEIPT_TOPIC_ID` | HCS topic for immutable payment receipts |
+| `GROQ_API_KEY` / `OPENAI_API_KEY` | LLM key (for compliance audit features) |
